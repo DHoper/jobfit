@@ -1,0 +1,95 @@
+@import 'tailwindcss';
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+@theme {
+  --font-sans: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', 'Heiti TC', system-ui, sans-serif;
+
+  --color-ink: #0f1733; /* 品牌深藍：主要文字、主要按鈕 */
+  --color-ink-2: #4a5470;
+  --color-ink-3: #7a8399;
+  --color-line: #e3e6ec;
+  --color-paper: #f4f5f8;
+  --color-surface: #ffffff;
+  --color-marker: #ffc93c; /* 螢光筆黃：品牌強調色 */
+  --color-marker-soft: #fff1c2;
+
+  --color-go: #17804a;
+  --color-go-soft: #e4f4ea;
+  --color-wait: #9a6200;
+  --color-wait-soft: #fff3d6;
+  --color-stop: #c92a2f;
+  --color-stop-soft: #fde9e8;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+@layer base {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-ink: #e8ebf3;
+      --color-ink-2: #aab1c4;
+      --color-ink-3: #7f879c;
+      --color-line: #2a3250;
+      --color-paper: #0c1124;
+      --color-surface: #141b33;
+      --color-marker-soft: #4a3c12;
+      --color-go: #4cc282;
+      --color-go-soft: #12301f;
+      --color-wait: #f0b74a;
+      --color-wait-soft: #3a2d0e;
+      --color-stop: #ff6b6b;
+      --color-stop-soft: #3b1518;
+    }
+  }
+  html { color-scheme: light dark; }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.6;
+    font-feature-settings: 'tnum' 1;
+  }
+  :focus-visible { outline: 2px solid var(--color-marker); outline-offset: 2px; }
+  ::selection { background: var(--color-marker); color: #0f1733; }
+}
+
+/* 螢光筆：職缺原文引用與判斷結果的下劃線 */
+@utility marker {
+  background-image: linear-gradient(100deg, transparent 0.2em, color-mix(in srgb, var(--color-marker) 55%, transparent) 0.3em, color-mix(in srgb, var(--color-marker) 42%, transparent) 96%, transparent);
+  background-size: 100% 0.62em;
+  background-position: 0 88%;
+  background-repeat: no-repeat;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+@utility marker-high {
+  background-image: linear-gradient(100deg, transparent 0.2em, color-mix(in srgb, var(--color-stop) 30%, transparent) 0.3em, color-mix(in srgb, var(--color-stop) 22%, transparent) 96%, transparent);
+  background-size: 100% 0.62em;
+  background-position: 0 88%;
+  background-repeat: no-repeat;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+@utility marker-low {
+  background-image: linear-gradient(100deg, transparent 0.2em, color-mix(in srgb, var(--color-ink-3) 28%, transparent) 0.3em, color-mix(in srgb, var(--color-ink-3) 20%, transparent) 96%, transparent);
+  background-size: 100% 0.62em;
+  background-position: 0 88%;
+  background-repeat: no-repeat;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+@keyframes stroke-in { from { background-size: 0% 0.62em; } to { background-size: 100% 0.62em; } }
+.marker-draw { animation: stroke-in 520ms cubic-bezier(.2,.7,.2,1) 120ms both; }
+@media (prefers-reduced-motion: reduce) { .marker-draw { animation: none; } }
+
+@keyframes shimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+.skeleton {
+  background: linear-gradient(90deg, var(--color-line) 0px, color-mix(in srgb, var(--color-line) 40%, transparent) 80px, var(--color-line) 160px);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }

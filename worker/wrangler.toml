@@ -5,6 +5,8 @@ compatibility_date = "2026-11-01"
 [vars]
 # 上架後填入擴充功能的 ID（逗號分隔），只允許這些擴充功能呼叫。空白 = 允許任何擴充功能（開發測試用）
 ALLOWED_EXTENSION_IDS = ""
+# 使用的 DeepSeek 模型
+MODEL = "deepseek-chat"
 
 # 每日次數限制用的 KV。建立方式：wrangler kv namespace create RATE，再把 id 填進來
 # [[kv_namespaces]]

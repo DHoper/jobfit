@@ -1,16 +1,16 @@
-// 投準的 AI 代理（Cloudflare Worker）
+// 避雷針的 AI 代理（Cloudflare Worker）
 // 保管站方的 DeepSeek 金鑰，讓使用者不用自己申請、輸入任何金鑰。
 //
 // 部署：
 //   1. npm i -g wrangler && wrangler login
 //   2. cd worker && wrangler deploy
 //   3. wrangler secret put DEEPSEEK_API_KEY   （貼上金鑰）
-//   4. 把部署後的網址填進 extension/background.js 的 DEFAULT_PROXY_URL
+//   4. 把部署後的網址填進 src/lib/ai.ts 的 DEFAULT_PROXY_URL，重新 npm run build
 //
 // 保護措施：
-//   - 只接受投準擴充功能送來的請求（Origin 檢查，可在 wrangler.toml 設定允許的擴充功能 ID）
+//   - 只接受避雷針擴充功能送來的請求（Origin 檢查，可在 wrangler.toml 設定允許的擴充功能 ID）
 //   - 每個 IP 每天最多 DAILY_LIMIT 次（需要綁定 KV：RATE）
-//   - 只轉送評估需要的欄位，固定使用 deepseek-chat 模型
+//   - 只轉送評估需要的欄位；模型由 wrangler.toml 的 MODEL 決定（預設 deepseek-chat）
 
 const DAILY_LIMIT = 30;
 const MAX_INPUT_CHARS = 40000;
@@ -27,7 +27,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
 
     const url = new URL(request.url);
-    if (url.pathname !== '/evaluate' || request.method !== 'POST') return json({ error: 'not found' }, 404, cors);
+    if (!['/evaluate', '/chat'].includes(url.pathname) || request.method !== 'POST') return json({ error: 'not found' }, 404, cors);
     if (!allowed) return json({ error: 'forbidden' }, 403, cors);
 
     // 每日次數限制
@@ -56,12 +56,18 @@ export default {
     const res = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({ model: 'deepseek-chat', messages, temperature: 0.2, response_format: { type: 'json_object' } }),
+      body: JSON.stringify({
+        model: env.MODEL || 'deepseek-chat',
+        messages,
+        temperature: Math.min(1, Math.max(0, Number(body.temperature ?? 0.2))),
+        response_format: { type: 'json_object' },
+        max_tokens: 2000, // 控制每次的費用上限
+      }),
     });
     if (!res.ok) return json({ error: `upstream ${res.status}` }, 502, cors);
     const data = await res.json();
     // 不記錄任何使用者內容，只回傳模型的輸出
-    return json({ content: data.choices?.[0]?.message?.content || '' }, 200, cors);
+    return json({ content: data.choices?.[0]?.message?.content || '', model: data.model }, 200, cors);
   },
 };
 

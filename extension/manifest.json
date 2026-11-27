@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "投準：職缺評估",
+  "version": "0.1.0",
+  "description": "在 104 等求職網站的職缺頁，一鍵評估值不值得投：對照你的經歷、找出地雷、給出建議。",
+  "homepage_url": "https://github.com/DHoper/jobfit",
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": {
+    "default_title": "投準：評估這個職缺",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/16.png", "48": "icons/48.png" }
+  },
+  "options_page": "options.html",
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://api.deepseek.com/*", "https://*.workers.dev/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.104.com.tw/*"],
+      "js": ["rules.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

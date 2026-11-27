@@ -72,7 +72,8 @@ export default defineContentScript({
       if (!res.ok || location.href !== last) return;
       jobId = res.job.id;
       showVerdict();
-      const hits = checkRules(res.job);
+      const { profile } = await chrome.storage.local.get('profile');
+      const hits = checkRules(res.job, (profile as { keywords?: string[] } | undefined)?.keywords);
       if (!hits.length) return;
       const high = hits.filter((h) => h.level === 'high').length;
       count.textContent = String(hits.length);

@@ -2,6 +2,7 @@
 import type { Evaluation, Job, Profile, RuleHit } from './types';
 import { RULE_BY_ID } from './rules';
 import { formatYuan } from './salary';
+import { guessName, redact } from './redact';
 
 const SCHEMA = `{
   "verdict": "APPLY" | "MAYBE" | "SKIP",
@@ -36,11 +37,12 @@ function field(name: string, value: unknown): string | null {
   return v ? `## ${name}\n${v}` : null;
 }
 
-export function buildEvaluationMessages(profile: Profile, job: Job, hits: RuleHit[]) {
+export function buildEvaluationMessages(input: Profile, job: Job, hits: RuleHit[], opts: { redact?: boolean } = {}) {
+  const profile = opts.redact === false ? input : redactProfile(input);
   const floor = profile.salaryFloor?.amount
     ? `${profile.salaryFloor.unit === 'month' ? '月薪' : '年薪'} ${formatYuan(profile.salaryFloor.amount)} 以上`
     : '';
-  const dealbreakers = [...(profile.dealbreakers || []).map((id) => RULE_BY_ID[id]?.label ?? id), profile.dealbreakerNote]
+  const dealbreakers = [...(profile.dealbreakers || []).map((id) => RULE_BY_ID[id]?.label ?? id), ...(profile.keywords || []).map((k) => `職缺出現「${k}」`), profile.dealbreakerNote]
     .filter(Boolean)
     .join('、');
 
@@ -104,7 +106,15 @@ export function evaluationToText(job: Job, e: Evaluation, hits: RuleHit[]): stri
   return lines.filter((l, i, a) => l !== '' || (a[i - 1] ?? '') !== '').join('\n').trim();
 }
 
-export function buildResumeSplitMessages(resume: string) {
+/** 只遮送出去的那一份；存在本機的個人檔案不變 */
+export function redactProfile(p: Profile): Profile {
+  const name = guessName(p.resume);
+  const r = (s?: string) => redact(s, name);
+  return { ...p, title: r(p.title), experience: r(p.experience), skills: r(p.skills), stories: r(p.stories), goals: r(p.goals), preferences: r(p.preferences), resume: r(p.resume) };
+}
+
+export function buildResumeSplitMessages(input: string, opts: { redact?: boolean } = {}) {
+  const resume = opts.redact === false ? input : redact(input, guessName(input));
   return [
     {
       role: 'system' as const,

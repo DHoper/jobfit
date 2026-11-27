@@ -4,6 +4,7 @@ import { AiError, chatJson } from './ai';
 import { buildEvaluationMessages, parseEvaluation } from './prompt';
 import { get, saveRecord } from './storage';
 import type { Job, JobRecord, Profile, RuleHit } from './types';
+import { textStamp } from './stats';
 
 export type EvalSession = { pending: Record<string, number>; errors: Record<string, { code: string; message: string }> };
 
@@ -39,13 +40,13 @@ export async function runEvaluation(job: Job, hits: RuleHit[]) {
   const keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20_000);
   try {
     const [profile, settings, records] = await Promise.all([get('profile'), get('settings'), get('records')]);
-    const evaluation = await chatJson(settings, buildEvaluationMessages(profile, job, hits), (c, m) => parseEvaluation(c, m), { signal: ctrl.signal });
+    const evaluation = await chatJson(settings, buildEvaluationMessages(profile, job, hits, { redact: settings.redact !== false }), (c, m) => parseEvaluation(c, m), { signal: ctrl.signal });
     const now = new Date().toISOString();
     const prev = records[job.id];
     const rec: JobRecord = {
       id: job.id, url: job.url, site: job.site, title: job.title, company: job.company, salaryText: job.salaryText,
       status: 'saved', createdAt: now, ...prev,
-      ruleHits: hits, evaluation: { ...evaluation, profileStamp: profileStamp(profile) }, updatedAt: now,
+      ruleHits: hits, evaluation: { ...evaluation, profileStamp: profileStamp(profile), jobStamp: textStamp(job.description) }, updatedAt: now,
     };
     await saveRecord(rec);
   } catch (e) {

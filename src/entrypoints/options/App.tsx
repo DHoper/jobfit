@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Download, ExternalLink, FileUp, Search, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { Download, ExternalLink, FileText, FileUp, NotebookPen, Search, Sparkles, Trash2, Wand2, X } from 'lucide-react';
+import { computeStats, type Stats } from '@/lib/stats';
+import { RESUME_ACCEPT, ResumeFileError, readResumeFile } from '@/lib/resume-file';
 import { BRAND } from '@/lib/brand';
 import { Button, ConfirmDialog, Field, Input, Mark, Select, Switch, Textarea, cn } from '@/components/ui';
 import { LEVEL_META, SITE_LABEL, VerdictPill, relTime } from '@/components/shared';
@@ -140,20 +142,43 @@ function ProfilePage({ welcome }: { welcome: boolean }) {
   const { draft: p, update, state, replace } = useAutosave<Profile>('profile');
   const [settings] = useStored('settings');
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<null | (() => void)>(null);
+  const [confirm, setConfirm] = useState<null | { title: string; body: string; run: () => void }>(null);
+  const [reading, setReading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   if (!p) return null;
+
+  async function loadFile(f: File) {
+    setReading(true);
+    try {
+      const text = await readResumeFile(f);
+      const apply = () => {
+        update({ resume: text });
+        toast.success(`已讀取「${f.name}」，共 ${text.length.toLocaleString()} 字。檢查一下內容，再按「用 AI 整理」。`);
+      };
+      (p!.resume || '').trim()
+        ? setConfirm({ title: '要取代目前貼上的履歷嗎？', body: `「${f.name}」的內容會取代上面欄位裡現有的文字。`, run: apply })
+        : apply();
+    } catch (e) {
+      toast.error(e instanceof ResumeFileError ? e.message : '讀取檔案失敗，請改貼上文字');
+    } finally {
+      setReading(false);
+    }
+  }
   const bind = (k: keyof Profile) => ({ value: (p[k] as string) || '', onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => update({ [k]: e.target.value }) });
 
   async function split() {
     setBusy(true);
     try {
-      const r = await chatJson(settings || {}, buildResumeSplitMessages(p!.resume || ''), (c) => parseResumeSplit(c), { temperature: 0.1 });
+      const r = await chatJson(settings || {}, buildResumeSplitMessages(p!.resume || '', { redact: settings?.redact !== false }), (c) => parseResumeSplit(c), { temperature: 0.1 });
       const apply = () => {
         replace({ ...p!, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v)) });
         toast.success('已整理到下面的欄位，請逐項確認內容正確');
       };
       const filled = (['title', 'years', 'experience', 'skills', 'stories'] as const).some((k) => (p![k] || '').trim());
-      filled ? setConfirm(() => apply) : apply();
+      filled
+        ? setConfirm({ title: '要覆蓋已經填的欄位嗎？', body: 'AI 整理出來的內容會取代職稱、年資、經歷、技能與成果欄位裡現有的文字。', run: apply })
+        : apply();
     } catch (e) {
       toast.error(e instanceof AiError ? e.message : '整理失敗，請再試一次');
     } finally {
@@ -183,9 +208,28 @@ function ProfilePage({ welcome }: { welcome: boolean }) {
         </div>
       )}
 
-      <Block title="從舊履歷開始" desc="最快的方式。貼上之後讓 AI 拆成下面的欄位，你再逐項確認。">
-        <Textarea rows={8} placeholder="從 Word、PDF 或 104 履歷複製全部文字貼進來" {...bind('resume')} />
+      <Block title="從舊履歷開始" desc="最快的方式。上傳或貼上之後讓 AI 拆成下面的欄位，你再逐項確認。檔案只在這台電腦讀取，不會上傳。">
+        <div
+          className={cn('relative rounded-md transition-shadow', dragging && 'ring-3 ring-marker')}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const f = e.dataTransfer.files[0];
+            if (f) loadFile(f);
+          }}
+        >
+          <Textarea rows={8} placeholder="把 PDF 或 Word 履歷拖進來，或直接貼上文字" {...bind('resume')} />
+          {dragging && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-surface/90 text-sm font-medium">放開就會讀取這個檔案</div>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={() => fileRef.current?.click()} disabled={reading}>
+            <FileText />{reading ? '讀取中…' : '上傳 PDF 或 Word'}
+          </Button>
+          <input ref={fileRef} type="file" accept={RESUME_ACCEPT} hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) loadFile(f); }} />
           <Button variant="primary" onClick={split} disabled={busy || !(p.resume || '').trim() || !hasEndpoint(settings || {})}>
             <Wand2 />{busy ? '整理中…' : '用 AI 整理成下面的欄位'}
           </Button>
@@ -214,10 +258,10 @@ function ProfilePage({ welcome }: { welcome: boolean }) {
       <ConfirmDialog
         open={Boolean(confirm)}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title="要覆蓋已經填的欄位嗎？"
-        description="AI 整理出來的內容會取代職稱、年資、經歷、技能與成果欄位裡現有的文字。"
-        confirmLabel="覆蓋"
-        onConfirm={() => confirm?.()}
+        title={confirm?.title ?? ''}
+        description={confirm?.body ?? ''}
+        confirmLabel="取代"
+        onConfirm={() => confirm?.run()}
       />
     </>
   );
@@ -294,10 +338,55 @@ function DealbreakersPage() {
         </Block>
       ))}
 
-      <Block title="其他不能接受的條件" desc="規則抓不到的，寫給 AI 參考。">
+      <Block title="自訂關鍵字" desc="職缺出現這些字就直接建議跳過，例如產業、公司名、合約條款。">
+        <KeywordInput value={p.keywords || []} onChange={(keywords) => update({ keywords })} />
+      </Block>
+
+      <Block title="其他不能接受的條件" desc="規則和關鍵字抓不到的，寫給 AI 參考。">
         <Textarea rows={3} placeholder="例如：通勤超過 1 小時、要求簽競業條款、博弈產業" value={p.dealbreakerNote || ''} onChange={(e) => update({ dealbreakerNote: e.target.value })} />
       </Block>
     </>
+  );
+}
+
+function KeywordInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [draft, setDraft] = useState('');
+  const add = (raw: string) => {
+    const items = raw.split(/[,，、\n]/).map((s) => s.trim()).filter((s) => s && !value.includes(s));
+    if (items.length) onChange([...value, ...items]);
+    setDraft('');
+  };
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <Input
+          placeholder="輸入後按 Enter，例如：博弈"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              add(draft);
+            }
+          }}
+          aria-label="新增關鍵字"
+          className="max-w-72"
+        />
+        <Button onClick={() => add(draft)} disabled={!draft.trim()}>加入</Button>
+      </div>
+      {value.length > 0 && (
+        <ul className="flex flex-wrap gap-2">
+          {value.map((k) => (
+            <li key={k} className="inline-flex h-7 items-center gap-1 rounded-full bg-stop-soft pl-3 pr-1 text-[13px] text-stop">
+              {k}
+              <button onClick={() => onChange(value.filter((x) => x !== k))} className="rounded-full p-1 hover:bg-stop/10 cursor-pointer" aria-label={`移除 ${k}`}>
+                <X className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -307,28 +396,38 @@ function DealbreakersPage() {
 function RecordsPage() {
   const [records] = useStored('records');
   const [filter, setFilter] = useState<Status | 'all'>('all');
+  const [sort, setSort] = useState<'recent' | 'score' | 'company'>('recent');
   const [q, setQ] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<string | null>(null);
   const list = useMemo(() => Object.values(records || {}).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [records]);
+  const stats = useMemo(() => computeStats(list), [list]);
   const counts = list.reduce<Record<string, number>>((m, r) => ((m[r.status] = (m[r.status] || 0) + 1), m), {});
-  const shown = list.filter((r) => (filter === 'all' || r.status === filter) && (!q || `${r.title}${r.company}`.toLowerCase().includes(q.toLowerCase())));
+  const shown = list
+    .filter((r) => (filter === 'all' || r.status === filter) && (!q || `${r.title}${r.company}`.toLowerCase().includes(q.toLowerCase())))
+    .sort((a, b) =>
+      sort === 'score' ? (b.evaluation?.score ?? -1) - (a.evaluation?.score ?? -1)
+      : sort === 'company' ? (a.company || '').localeCompare(b.company || '', 'zh-Hant')
+      : 0,
+    );
 
   const exportCsv = () => {
-    const rows = [['職缺', '公司', '網站', '薪資', '判斷', '符合度', '高風險地雷', '狀態', '更新時間', '網址']];
+    const rows = [['職缺', '公司', '網站', '薪資', '判斷', '符合度', '高風險地雷', '狀態', '筆記', '更新時間', '網址']];
     for (const r of list)
       rows.push([r.title, r.company || '', SITE_LABEL[r.site] ?? '', r.salaryText || '', r.evaluation?.verdict || '', String(r.evaluation?.score ?? ''),
-        r.ruleHits.filter((h) => h.level === 'high').map((h) => h.label).join('、'), STATUS_LABEL[r.status], r.updatedAt.slice(0, 10), r.url]);
-    const csv = '﻿' + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+        r.ruleHits.filter((h) => h.level === 'high').map((h) => h.label).join('、'), STATUS_LABEL[r.status], r.note || '', r.updatedAt.slice(0, 10), r.url]);
+    const csv = '\uFEFF' + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
     download(`${BRAND.name}投遞紀錄-${today()}.csv`, csv, 'text/csv');
   };
 
   return (
     <>
-      <PageHead title="投遞紀錄" lead="評估過或加入紀錄的職缺。投遞後回來更新狀態，累積下來的結果也能看出哪些建議準。" />
+      <PageHead title="投遞紀錄" lead="評估過或加入紀錄的職缺。投遞後回來更新狀態，累積下來就看得出哪些建議準。" />
       {!list.length ? (
         <p className="border-t border-line pt-7 text-sm text-ink-2">還沒有紀錄。打開任一個職缺頁，在側邊欄按「加入投遞紀錄」或「對照我的經歷評估」。</p>
       ) : (
         <>
+          <StatsStrip stats={stats} />
           <div className="mb-4 flex flex-wrap items-center gap-2">
             {(['all', ...STATUS_ORDER] as const).filter((s) => s === 'all' || counts[s]).map((s) => (
               <button
@@ -339,14 +438,18 @@ function RecordsPage() {
                 {s === 'all' ? `全部 ${list.length}` : `${STATUS_LABEL[s]} ${counts[s]}`}
               </button>
             ))}
-            <div className="relative ml-auto w-full sm:w-56">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
-              <Input placeholder="搜尋職稱或公司" value={q} onChange={(e) => setQ(e.target.value)} className="pl-8" aria-label="搜尋職稱或公司" />
+            <div className="ml-auto flex w-full flex-wrap gap-2 sm:w-auto">
+              <div className="relative flex-1 sm:w-52 sm:flex-none">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+                <Input placeholder="搜尋職稱或公司" value={q} onChange={(e) => setQ(e.target.value)} className="pl-8" aria-label="搜尋職稱或公司" />
+              </div>
+              <Select aria-label="排序" value={sort} onValueChange={(v) => setSort(v as typeof sort)} className="w-32"
+                options={[{ value: 'recent', label: '最近更新' }, { value: 'score', label: '符合度高到低' }, { value: 'company', label: '依公司' }]} />
+              <Button onClick={exportCsv}><Download />匯出 CSV</Button>
             </div>
-            <Button onClick={exportCsv}><Download />匯出 CSV</Button>
           </div>
           <div className="overflow-x-auto rounded-lg bg-surface ring-1 ring-line">
-            <table className="w-full min-w-[760px] text-left text-[13px]">
+            <table className="w-full min-w-[780px] text-left text-[13px]">
               <thead className="border-b border-line text-xs text-ink-3">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">職缺</th>
@@ -355,31 +458,61 @@ function RecordsPage() {
                   <th className="px-3 py-2.5 font-medium">高風險地雷</th>
                   <th className="px-3 py-2.5 font-medium">狀態</th>
                   <th className="px-3 py-2.5 font-medium">更新</th>
-                  <th className="w-10" />
+                  <th className="w-20" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
+              <tbody>
                 {shown.map((r) => (
-                  <tr key={r.id} className="hover:bg-ink/2">
-                    <td className="max-w-[320px] px-4 py-3">
-                      <a href={r.url} target="_blank" rel="noreferrer" className="group inline-flex max-w-full items-center gap-1 font-medium">
-                        <span className="truncate group-hover:underline">{r.title}</span>
-                        <ExternalLink className="size-3 shrink-0 text-ink-3" />
-                      </a>
-                      <p className="truncate text-xs text-ink-3">{[r.company, r.salaryText].filter(Boolean).join('｜')}</p>
-                    </td>
-                    <td className="px-3 py-3"><VerdictPill verdict={r.evaluation?.verdict} /></td>
-                    <td className="px-3 py-3 text-right">{r.evaluation ? r.evaluation.score : <span className="text-ink-3">—</span>}</td>
-                    <td className="px-3 py-3 text-xs text-stop">{r.ruleHits.filter((h) => h.level === 'high').map((h) => h.label).join('、') || <span className="text-ink-3">—</span>}</td>
-                    <td className="px-3 py-3">
-                      <Select size="sm" aria-label="投遞狀態" value={r.status} onValueChange={(v) => updateRecord(r.id, { status: v as Status })}
-                        options={STATUS_ORDER.map((s) => ({ value: s, label: STATUS_LABEL[s] }))} />
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-xs text-ink-3">{relTime(r.updatedAt)}</td>
-                    <td className="pr-2">
-                      <Button variant="ghost" size="icon" aria-label={`刪除 ${r.title}`} onClick={() => setToDelete(r.id)}><Trash2 /></Button>
-                    </td>
-                  </tr>
+                  <React.Fragment key={r.id}>
+                    <tr className={cn('border-t border-line first:border-t-0 hover:bg-ink/2', open === r.id && 'bg-ink/2')}>
+                      <td className="max-w-[320px] px-4 py-3">
+                        <a href={r.url} target="_blank" rel="noreferrer" className="group inline-flex max-w-full items-center gap-1 font-medium">
+                          <span className="truncate group-hover:underline">{r.title}</span>
+                          <ExternalLink className="size-3 shrink-0 text-ink-3" />
+                        </a>
+                        <p className="truncate text-xs text-ink-3">{[r.company, r.salaryText].filter(Boolean).join('｜')}</p>
+                        {r.note && open !== r.id && <p className="mt-0.5 truncate text-xs text-ink-2">筆記：{r.note}</p>}
+                      </td>
+                      <td className="px-3 py-3"><VerdictPill verdict={r.evaluation?.verdict} /></td>
+                      <td className="px-3 py-3 text-right">{r.evaluation ? r.evaluation.score : <span className="text-ink-3">—</span>}</td>
+                      <td className="px-3 py-3 text-xs text-stop">{r.ruleHits.filter((h) => h.level === 'high').map((h) => h.label).join('、') || <span className="text-ink-3">—</span>}</td>
+                      <td className="px-3 py-3">
+                        <Select size="sm" aria-label="投遞狀態" value={r.status} onValueChange={(v) => updateRecord(r.id, { status: v as Status })}
+                          options={STATUS_ORDER.map((s) => ({ value: s, label: STATUS_LABEL[s] }))} />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-xs text-ink-3">{relTime(r.updatedAt)}</td>
+                      <td className="whitespace-nowrap pr-2 text-right">
+                        <Button variant="ghost" size="icon" aria-label={open === r.id ? '收起' : '筆記與評估'} aria-expanded={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)}>
+                          <NotebookPen />
+                        </Button>
+                        <Button variant="ghost" size="icon" aria-label={`刪除 ${r.title}`} onClick={() => setToDelete(r.id)}><Trash2 /></Button>
+                      </td>
+                    </tr>
+                    {open === r.id && (
+                      <tr className="bg-ink/2">
+                        <td colSpan={7} className="px-4 pb-4 pt-1">
+                          <div className="grid gap-5 md:grid-cols-[1fr_1fr]">
+                            <Field label="筆記" hint="面試日期、聯絡人、面試心得，離開欄位就會儲存。">
+                              <Textarea rows={4} defaultValue={r.note || ''} onBlur={(e) => e.target.value !== (r.note || '') && updateRecord(r.id, { note: e.target.value }).then(() => toast.success('已儲存筆記'))} />
+                            </Field>
+                            <div className="text-[13px] leading-relaxed">
+                              <p className="text-xs font-medium text-ink-3">AI 評估</p>
+                              {r.evaluation ? (
+                                <>
+                                  <p className="mt-1">{r.evaluation.summary}</p>
+                                  {r.evaluation.requirements.filter((x) => x.status === 'gap').length > 0 && (
+                                    <p className="mt-2 text-ink-2">缺少：{r.evaluation.requirements.filter((x) => x.status === 'gap').map((x) => x.requirement).join('、')}</p>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="mt-1 text-ink-3">還沒評估。打開職缺頁，在側邊欄按「對照我的經歷評估」。</p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -391,12 +524,50 @@ function RecordsPage() {
         open={Boolean(toDelete)}
         onOpenChange={(o) => !o && setToDelete(null)}
         title="刪除這筆紀錄？"
-        description="評估結果和投遞狀態都會刪掉，無法復原。"
+        description="評估結果、投遞狀態和筆記都會刪掉，無法復原。"
         confirmLabel="刪除"
         danger
         onConfirm={() => toDelete && deleteRecord(toDelete).then(() => toast.success('已刪除'))}
       />
     </>
+  );
+}
+
+function StatsStrip({ stats }: { stats: Stats }) {
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+  const V = { APPLY: '建議投', MAYBE: '再想想', SKIP: '別投' } as const;
+  return (
+    <div className="mb-6 grid gap-x-8 gap-y-4 border-y border-line py-5 sm:grid-cols-[auto_auto_auto_1fr]">
+      <Stat label="已投遞" value={stats.sent} sub={`共 ${stats.total} 筆紀錄`} />
+      <Stat label="進到面試" value={stats.interviews} sub={stats.interviewRate === null ? '還沒投遞' : `面試率 ${pct(stats.interviewRate)}`} />
+      <Stat label="拿到 offer" value={stats.offers} />
+      <div className="min-w-0 sm:border-l sm:border-line sm:pl-8">
+        <p className="text-xs text-ink-3">AI 建議準不準</p>
+        {stats.outcomes < 3 ? (
+          <p className="mt-1 text-[13px] leading-relaxed text-ink-2">再累積 {3 - stats.outcomes} 筆有結果（面試、offer、沒上）的評估，這裡會比對 AI 的建議和實際結果。</p>
+        ) : (
+          <ul className="mt-1.5 space-y-1 text-[13px]">
+            {stats.byVerdict.map((v) => (
+              <li key={v.verdict} className="flex items-center gap-2">
+                <VerdictPill verdict={v.verdict} />
+                <span>{v.outcomes} 筆中 {v.good} 筆進到面試</span>
+                <span className="text-ink-3">（{pct(v.good / v.outcomes)}）</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, sub }: { label: string; value: number; sub?: string }) {
+  return (
+    <div>
+      <p className="text-xs text-ink-3">{label}</p>
+      <p className="mt-0.5 text-[26px] font-semibold leading-tight">{value}</p>
+      {sub && <p className="text-xs text-ink-3">{sub}</p>}
+    </div>
   );
 }
 
@@ -467,6 +638,15 @@ function SettingsPage() {
                 : testing}
           </span>
         </div>
+      </Block>
+      <Block title="隱私" desc="評估職缺不需要你的聯絡資料。">
+        <label className="flex cursor-pointer items-start gap-4 rounded-lg bg-surface px-4 py-3 ring-1 ring-line">
+          <span className="min-w-0 flex-1">
+            <span className="text-sm font-medium">送給 AI 前移除個人資料</span>
+            <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-3">姓名、電話、Email、地址、生日、身分證字號會換成「[已移除]」。只影響送出去的內容，你的個人檔案不會被改動。</span>
+          </span>
+          <Switch className="mt-1" checked={s.redact !== false} onCheckedChange={(v) => update({ redact: v })} aria-label="送給 AI 前移除個人資料" />
+        </label>
       </Block>
       <Block title="備份" desc="包含個人檔案與投遞紀錄，不含金鑰。">
         <div className="flex flex-wrap gap-2">

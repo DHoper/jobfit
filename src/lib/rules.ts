@@ -243,7 +243,8 @@ function contextOf(text: string, match: string): string {
 
 const LEVEL_ORDER: Record<Level, number> = { high: 0, medium: 1, low: 2 };
 
-export function checkRules(job: Job): RuleHit[] {
+/** keywords：使用者自訂的字詞，命中一律視為底線 */
+export function checkRules(job: Job, keywords: string[] = []): RuleHit[] {
   const text = jobText(job);
   const hits: RuleHit[] = [];
   for (const r of RULES) {
@@ -263,6 +264,15 @@ export function checkRules(job: Job): RuleHit[] {
     }
     if (match && !quote) quote = contextOf(text, match);
     hits.push({ id: r.id, label: r.label, level: r.level, why, ask: r.ask, match, quote });
+  }
+  const lower = text.toLowerCase();
+  for (const raw of keywords) {
+    const k = raw.trim();
+    if (!k) continue;
+    const i = lower.indexOf(k.toLowerCase());
+    if (i < 0) continue;
+    const match = text.slice(i, i + k.length);
+    hits.push({ id: `kw:${k}`, label: `出現「${k}」`, level: 'high', why: '你設定職缺出現這個字詞就不考慮。', match, quote: contextOf(text, match) });
   }
   return hits.sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
 }

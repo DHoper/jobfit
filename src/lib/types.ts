@@ -50,6 +50,7 @@ export interface Evaluation {
   dealbreakers_hit: string[];
   model?: string;
   profileStamp?: string;
+  jobStamp?: string;
   evaluatedAt: string;
 }
 
@@ -88,10 +89,14 @@ export interface Profile {
   salaryFloor?: SalaryFloor | null;
   dealbreakers?: string[]; // 規則 id
   dealbreakerNote?: string;
+  /** 職缺出現這些字就直接跳過，例如「博弈」「競業」 */
+  keywords?: string[];
 }
 
 export interface Settings {
   proxyUrl?: string;
   apiKey?: string;
   model?: string;
+  /** 送 AI 前移除姓名、電話、Email 等個資，預設開啟 */
+  redact?: boolean;
 }

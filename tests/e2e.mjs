@@ -23,6 +23,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>104 job</t
 <p>試用期三個月，試用期間薪資 9 折。</p><p>抗壓性高者佳</p>${'<p>其他內容</p>'.repeat(20)}</main></body></html>`;
 
 const browser = await puppeteer.launch({
+  dumpio: Boolean(process.env.DEBUG),
   executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome',
   headless: true,
   enableExtensions: [EXT],
@@ -86,6 +87,50 @@ const hl = await page.evaluate(() => [...CSS.highlights.keys()].map((k) => [k, C
 console.log('highlights', JSON.stringify(hl));
 const fail = [];
 
+// ---------- 工具列圖示上的地雷數 ----------
+await page.bringToFront(); // 切回職缺分頁時會重新計算
+await new Promise((r) => setTimeout(r, 2500));
+const badge = await (async () => {
+  const p = await browser.newPage();
+  await p.goto(`chrome-extension://${extId}/options.html`, { waitUntil: 'domcontentloaded' });
+  const b = await p.evaluate(async (id) => ({ text: await chrome.action.getBadgeText({ tabId: id }), title: await chrome.action.getTitle({ tabId: id }) }), tabId);
+  await p.close();
+  return b;
+})();
+console.log('badge', JSON.stringify(badge));
+
+// ---------- 上傳 PDF / Word 履歷 ----------
+const fs = await import('node:fs');
+const os = await import('node:os');
+const pathMod = await import('node:path');
+const { zipSync, strToU8 } = await import('fflate');
+const tmp = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'bileizhen-'));
+const pdfMaker = await browser.newPage();
+await pdfMaker.setContent('<html><body style="font-family:sans-serif"><h1>陳大文</h1><p>後端工程師，負責訂單系統 API，尖峰 3,000 QPS。</p><p>技能：Go、PostgreSQL、Redis、Kubernetes</p><p>樂購科技｜後端工程師｜2021–2024</p></body></html>');
+const pdfPath = pathMod.join(tmp, 'resume.pdf');
+await pdfMaker.pdf({ path: pdfPath });
+await pdfMaker.close();
+const docxPath = pathMod.join(tmp, 'resume.docx');
+fs.writeFileSync(docxPath, zipSync({ 'word/document.xml': strToU8('<w:document><w:body><w:p><w:r><w:t>林小美</w:t></w:r></w:p><w:p><w:r><w:t>前端工程師｜React</w:t></w:r></w:p><w:p><w:r><w:t>負責電商網站結帳流程改版，轉換率提升 12%，帶領 3 人前端小組。</w:t></w:r></w:p></w:body></w:document>') }));
+async function upload(file) {
+  const p = await browser.newPage();
+  await p.goto(`chrome-extension://${extId}/options.html#profile`, { waitUntil: 'domcontentloaded' });
+  await p.evaluate(() => chrome.storage.local.set({ profile: {} }));
+  await p.reload({ waitUntil: 'domcontentloaded' });
+  await new Promise((r) => setTimeout(r, 800));
+  const input = await p.$('input[type=file]');
+  await input.uploadFile(file);
+  await p.waitForFunction(() => (document.querySelector('textarea')?.value || '').length > 5 || document.querySelector('[data-sonner-toast]'), { timeout: 15000 }).catch(() => {});
+  const v = await p.$eval('textarea', (t) => t.value);
+  const toasts = await p.$$eval('[data-sonner-toast]', (els) => els.map((e) => e.textContent));
+  if (!v) console.log('upload toast', file, toasts);
+  await p.close();
+  return v;
+}
+const pdfText = await upload(pdfPath);
+const docxText = await upload(docxPath);
+console.log('pdf', JSON.stringify(pdfText.slice(0, 80)), 'docx', JSON.stringify(docxText));
+
 // ---------- 其他網站（全部是模擬頁面）----------
 const OTHER = {
   'https://www.linkedin.com/jobs/view/4012345678/': `<h1 class="top-card-layout__title">Senior Backend Engineer</h1>
@@ -139,6 +184,9 @@ if (!hl.some(([k, n]) => k === 'jobfit-high' && n > 0)) fail.push('頁面上沒�
 if (li.title !== 'Senior Backend Engineer' || !li.flags.includes('責任制')) fail.push('LinkedIn 職缺讀取或地雷偵測失敗');
 if (yo.title !== 'Platform Engineer' || !yo.meta.includes('Kuma Data') || !yo.meta.includes("月薪 60,000~90,000 元") || !yo.flags.includes('面試前需完成作業')) fail.push('Yourator（JSON-LD）讀取失敗');
 if (home.title || home.empty !== '這頁不是職缺頁') fail.push('1111 首頁被誤當成職缺');
+if (badge.text !== '5' || !badge.title.includes('責任制')) fail.push(`工具列圖示的地雷數不對：${JSON.stringify(badge)}`);
+if (!pdfText.includes('陳大文') || !pdfText.includes('3,000 QPS')) fail.push('PDF 履歷讀取失敗');
+if (!docxText.includes('林小美') || !docxText.includes('前端工程師｜React')) fail.push('Word 履歷讀取失敗');
 await page.bringToFront(); await page.screenshot({ path: OUT + 'e2e-104-marked.png' });
 // launcher label after a fake evaluation record
 await panel.evaluate(() => chrome.storage.local.get('records').then(({ records = {} }) => chrome.storage.local.set({ records: { ...records, '104:8x2kq': { id: '104:8x2kq', url: '', site: '104', title: 't', ruleHits: [], status: 'saved', createdAt: '', updatedAt: '', evaluation: { verdict: 'SKIP', score: 30, summary: '', requirements: [], red_flags: [], pros: [], cons: [], questions_to_ask: [], resume_tips: [], dealbreakers_hit: [], evaluatedAt: new Date().toISOString() } } } })));

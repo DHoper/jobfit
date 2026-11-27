@@ -12,7 +12,7 @@ export function findConflicts(job: Job, hits: RuleHit[], profile: Profile): Conf
   const out: Conflict[] = [];
   const chosen = new Set(profile.dealbreakers || []);
   for (const h of hits) {
-    if (chosen.has(h.id)) out.push({ kind: 'dealbreaker', label: h.label, detail: h.quote || h.why });
+    if (chosen.has(h.id) || h.id.startsWith('kw:')) out.push({ kind: 'dealbreaker', label: h.label, detail: h.quote || h.why });
   }
   const floor = profile.salaryFloor;
   if (floor?.amount) {
@@ -48,7 +48,7 @@ export function profileCompleteness(p: Profile): { done: number; total: number; 
     ['代表性成果', Boolean((p.stories || '').trim())],
     ['職涯目標', Boolean((p.goals || '').trim())],
     ['薪資底線', Boolean(p.salaryFloor?.amount)],
-    ['不能接受的條件', Boolean(p.dealbreakers?.length || (p.dealbreakerNote || '').trim())],
+    ['不能接受的條件', Boolean(p.dealbreakers?.length || p.keywords?.length || (p.dealbreakerNote || '').trim())],
   ];
   return { done: items.filter(([, ok]) => ok).length, total: items.length, missing: items.filter(([, ok]) => !ok).map(([n]) => n) };
 }

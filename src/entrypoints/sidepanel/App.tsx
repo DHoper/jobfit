@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   AlertTriangle, BookmarkPlus, Building2, Check, ChevronDown, CircleDashed, Copy, ExternalLink, FileSearch,
-  Lock, MapPin, MousePointerClick, RefreshCw, Settings, Sparkles, Wallet, X,
+  History, Lock, MapPin, MousePointerClick, RefreshCw, Settings, Sparkles, Wallet, X,
 } from 'lucide-react';
 import { BRAND } from '@/lib/brand';
 import { Button, Mark, Select, Switch, Tip, cn } from '@/components/ui';
@@ -13,6 +13,7 @@ import { applyConflicts, findConflicts, hasUsableProfile, type Conflict } from '
 import { hasEndpoint } from '@/lib/ai';
 import { profileStamp, type EvalSession } from '@/lib/evaluate';
 import { evaluationToText } from '@/lib/prompt';
+import { sameCompany, textStamp } from '@/lib/stats';
 import { STATUS_LABEL, STATUS_ORDER, saveRecord, updateRecord, useStored } from '@/lib/storage';
 import { highlight, useActiveJob } from '@/lib/tab';
 import type { Evaluation, Job, JobRecord, RuleHit, Status } from '@/lib/types';
@@ -43,8 +44,10 @@ export default function App() {
           {(['job', 'records'] as View[]).map((v) => (
             <button
               key={v}
+              id={`tab-${v}`}
               role="tab"
               aria-selected={view === v}
+              aria-controls="panel-main"
               onClick={() => setView(v)}
               className={cn(
                 'relative px-2 text-[13px] text-ink-3 transition-colors hover:text-ink cursor-pointer',
@@ -61,7 +64,7 @@ export default function App() {
           </Button>
         </Tip>
       </header>
-      <main className="min-h-0 flex-1 overflow-y-auto">{view === 'job' ? <JobPane /> : <RecordsPane />}</main>
+      <main id="panel-main" role="tabpanel" aria-labelledby={`tab-${view}`} className="min-h-0 flex-1 overflow-y-auto">{view === 'job' ? <JobPane /> : <RecordsPane />}</main>
     </div>
   );
 }
@@ -101,7 +104,8 @@ function JobView({ job, tabId, onReload }: { job: Job; tabId: number; onReload: 
   const [settings] = useStored('settings');
   const [records] = useStored('records');
   const record = records?.[job.id];
-  const hits = useMemo(() => checkRules(job), [job]);
+  const keywords = profile?.keywords;
+  const hits = useMemo(() => checkRules(job, keywords), [job, keywords]);
   const conflicts = useMemo(() => (profile ? findConflicts(job, hits, profile) : []), [job, hits, profile]);
   const session = useEvalSession();
   const busy = Boolean(session.pending[job.id]);
@@ -128,7 +132,14 @@ function JobView({ job, tabId, onReload }: { job: Job; tabId: number; onReload: 
     if (!profile || !hasUsableProfile(profile)) return;
     chrome.runtime.sendMessage({ type: 'evaluate', job, hits });
   }
-  const stale = Boolean(evaluation?.profileStamp && profile && evaluation.profileStamp !== profileStamp(profile));
+  const stale: StaleReason = !evaluation
+    ? null
+    : evaluation.jobStamp && evaluation.jobStamp !== textStamp(job.description)
+      ? 'job'
+      : evaluation.profileStamp && profile && evaluation.profileStamp !== profileStamp(profile)
+        ? 'profile'
+        : null;
+  const siblings = useMemo(() => (records ? sameCompany(records, job.company, job.id) : []), [records, job.company, job.id]);
 
   async function setStatus(s: Status) {
     if (record) await updateRecord(job.id, { status: s });
@@ -142,6 +153,16 @@ function JobView({ job, tabId, onReload }: { job: Job; tabId: number; onReload: 
   return (
     <div className="flex min-h-full flex-col">
       <JobHeader job={job} onReload={onReload} />
+      {siblings.length > 0 && (
+        <button
+          onClick={() => openOptions('#records')}
+          className="flex w-full items-center gap-2 border-b border-line bg-surface px-4 py-2 text-left text-xs text-ink-2 hover:text-ink cursor-pointer"
+        >
+          <History className="size-3.5 shrink-0 text-ink-3" />
+          你之前看過這家公司 {siblings.length} 個職缺：
+          {siblings.slice(0, 2).map((r) => `${r.title.slice(0, 12)}${r.title.length > 12 ? '…' : ''}（${STATUS_LABEL[r.status]}）`).join('、')}
+        </button>
+      )}
 
       {conflicts.length > 0 && <ConflictBanner conflicts={conflicts} />}
 
@@ -346,7 +367,9 @@ function Evaluating({ since, onCancel }: { since: number; onCancel: () => void }
   );
 }
 
-function VerdictBlock({ e, stale, onRerun, onCopy }: { e: Evaluation; stale: boolean; onRerun: () => void; onCopy: () => void }) {
+type StaleReason = 'job' | 'profile' | null;
+
+function VerdictBlock({ e, stale, onRerun, onCopy }: { e: Evaluation; stale: StaleReason; onRerun: () => void; onCopy: () => void }) {
   const m = VERDICT_META[e.verdict];
   return (
     <div>
@@ -366,7 +389,7 @@ function VerdictBlock({ e, stale, onRerun, onCopy }: { e: Evaluation; stale: boo
       {e.dealbreakers_hit.length > 0 && <p className="mt-2 text-[13px] text-stop">碰到你的底線：{e.dealbreakers_hit.join('、')}</p>}
       {stale && (
         <p className="mt-3 rounded-md bg-marker-soft px-3 py-2 text-[13px] leading-relaxed">
-          評估之後你改過個人檔案，<button onClick={onRerun} className="font-medium underline underline-offset-2 cursor-pointer">重新評估</button>會比較準。
+          {stale === 'job' ? '這個職缺的內容在評估之後改過，' : '評估之後你改過個人檔案，'}<button onClick={onRerun} className="font-medium underline underline-offset-2 cursor-pointer">重新評估</button>會比較準。
         </p>
       )}
       <div className="mt-3 flex items-center justify-between text-xs text-ink-3">

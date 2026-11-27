@@ -134,3 +134,13 @@ describe('evaluationToText', () => {
     expect(t.endsWith('https://x/1')).toBe(true);
   });
 });
+
+describe('自訂關鍵字', () => {
+  it('命中就是底線，不分大小寫', () => {
+    const j = job('本公司為線上 Casino 平台，需簽競業條款');
+    const hits = checkRules(j, ['casino', '競業', '不存在']);
+    expect(hits.map((h) => h.id)).toEqual(['kw:casino', 'kw:競業']);
+    expect(hits[0]?.match).toBe('Casino');
+    expect(findConflicts(j, hits, {}).map((c) => c.label)).toEqual(['出現「casino」', '出現「競業」']);
+  });
+});

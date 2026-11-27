@@ -9,13 +9,25 @@ import { Button, Mark, Select, Switch, Tip, cn } from '@/components/ui';
 import { LEVEL_META, Quote, SITE_LABEL, VERDICT_META, VerdictPill, relTime } from '@/components/shared';
 import { RULES, checkRules } from '@/lib/rules';
 import { applyConflicts, findConflicts, hasUsableProfile, type Conflict } from '@/lib/judge';
-import { buildEvaluationMessages, parseEvaluation } from '@/lib/prompt';
-import { AiError, chatJson, hasEndpoint } from '@/lib/ai';
+import { hasEndpoint } from '@/lib/ai';
+import { profileStamp, type EvalSession } from '@/lib/evaluate';
 import { STATUS_LABEL, STATUS_ORDER, saveRecord, updateRecord, useStored } from '@/lib/storage';
 import { highlight, useActiveJob } from '@/lib/tab';
 import type { Evaluation, Job, JobRecord, RuleHit, Status } from '@/lib/types';
 
 type View = 'job' | 'records';
+
+function useEvalSession(): EvalSession {
+  const [s, setS] = useState<EvalSession>({ pending: {}, errors: {} });
+  useEffect(() => {
+    const read = () => chrome.storage.session.get(['pending', 'errors']).then((d: Record<string, any>) => setS({ pending: d.pending || {}, errors: d.errors || {} }));
+    read();
+    const on = (_c: unknown, area: string) => area === 'session' && read();
+    chrome.storage.onChanged.addListener(on);
+    return () => chrome.storage.onChanged.removeListener(on);
+  }, []);
+  return s;
+}
 const openOptions = (hash = '') => chrome.tabs.create({ url: chrome.runtime.getURL(`/options.html${hash}`) });
 
 export default function App() {
@@ -89,9 +101,9 @@ function JobView({ job, tabId, onReload }: { job: Job; tabId: number; onReload: 
   const record = records?.[job.id];
   const hits = useMemo(() => checkRules(job), [job]);
   const conflicts = useMemo(() => (profile ? findConflicts(job, hits, profile) : []), [job, hits, profile]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<AiError | null>(null);
-  const abort = useRef<AbortController | null>(null);
+  const session = useEvalSession();
+  const busy = Boolean(session.pending[job.id]);
+  const error = session.errors[job.id] || null;
   const evaluation = record?.evaluation ? applyConflicts(record.evaluation, conflicts) : undefined;
 
   // 在頁面上標出地雷
@@ -110,20 +122,11 @@ function JobView({ job, tabId, onReload }: { job: Job; tabId: number; onReload: 
     };
   };
 
-  async function evaluate() {
+  function evaluate() {
     if (!profile || !hasUsableProfile(profile)) return;
-    setBusy(true);
-    setError(null);
-    abort.current = new AbortController();
-    try {
-      const e = await chatJson(settings || {}, buildEvaluationMessages(profile, job, hits), (c, m) => parseEvaluation(c, m), { signal: abort.current.signal });
-      await saveRecord({ ...baseRecord(), ruleHits: hits, evaluation: e, updatedAt: new Date().toISOString() });
-    } catch (e) {
-      if ((e as Error).name !== 'AbortError') setError(e instanceof AiError ? e : new AiError('SERVER', (e as Error).message));
-    } finally {
-      setBusy(false);
-    }
+    chrome.runtime.sendMessage({ type: 'evaluate', job, hits });
   }
+  const stale = Boolean(evaluation?.profileStamp && profile && evaluation.profileStamp !== profileStamp(profile));
 
   async function setStatus(s: Status) {
     if (record) await updateRecord(job.id, { status: s });
@@ -142,9 +145,9 @@ function JobView({ job, tabId, onReload }: { job: Job; tabId: number; onReload: 
 
       <div className="border-b border-line bg-surface px-4 py-4">
         {busy ? (
-          <Evaluating onCancel={() => abort.current?.abort()} />
+          <Evaluating since={session.pending[job.id]!} onCancel={() => chrome.runtime.sendMessage({ type: 'cancel-evaluate', id: job.id })} />
         ) : evaluation ? (
-          <VerdictBlock e={evaluation} onRerun={evaluate} />
+          <VerdictBlock e={evaluation} stale={stale} onRerun={evaluate} />
         ) : (
           <PreJudge
             hits={hits}
@@ -266,7 +269,7 @@ function ConflictBanner({ conflicts }: { conflicts: Conflict[] }) {
 function PreJudge({
   hits, conflicts, error, profileReady, endpointReady, onEvaluate,
 }: {
-  hits: RuleHit[]; conflicts: Conflict[]; error: AiError | null; profileReady: boolean; endpointReady: boolean; onEvaluate: () => void;
+  hits: RuleHit[]; conflicts: Conflict[]; error: EvalSession['errors'][string] | null; profileReady: boolean; endpointReady: boolean; onEvaluate: () => void;
 }) {
   const high = hits.filter((h) => h.level === 'high').length;
   const headline = conflicts.length
@@ -308,16 +311,18 @@ function PreJudge({
   );
 }
 
-function Evaluating({ onCancel }: { onCancel: () => void }) {
+function Evaluating({ since, onCancel }: { since: number; onCancel: () => void }) {
   const steps = ['讀取職缺要求', '對照你的經歷', '整理建議'];
-  const [i, setI] = useState(0);
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const t = setInterval(() => setI((x) => Math.min(x + 1, steps.length - 1)), 4500);
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+  const sec = Math.max(0, Math.round((now - since) / 1000));
+  const i = Math.min(Math.floor(sec / 5), steps.length - 1);
   return (
     <div aria-live="polite">
-      <p className="text-xs text-ink-3">評估中，大約 10–30 秒</p>
+      <p className="text-xs text-ink-3">評估中，已經 {sec} 秒（通常 10–30 秒，關掉側邊欄也會繼續）</p>
       <ol className="mt-2.5 space-y-1.5">
         {steps.map((s, n) => (
           <li key={s} className={cn('flex items-center gap-2 text-[13px]', n > i && 'text-ink-3')}>
@@ -331,7 +336,7 @@ function Evaluating({ onCancel }: { onCancel: () => void }) {
   );
 }
 
-function VerdictBlock({ e, onRerun }: { e: Evaluation; onRerun: () => void }) {
+function VerdictBlock({ e, stale, onRerun }: { e: Evaluation; stale: boolean; onRerun: () => void }) {
   const m = VERDICT_META[e.verdict];
   return (
     <div>
@@ -349,6 +354,11 @@ function VerdictBlock({ e, onRerun }: { e: Evaluation; onRerun: () => void }) {
       </div>
       {e.summary && <p className="mt-3 text-[14px] leading-relaxed">{e.summary}</p>}
       {e.dealbreakers_hit.length > 0 && <p className="mt-2 text-[13px] text-stop">碰到你的底線：{e.dealbreakers_hit.join('、')}</p>}
+      {stale && (
+        <p className="mt-3 rounded-md bg-marker-soft px-3 py-2 text-[13px] leading-relaxed">
+          評估之後你改過個人檔案，<button onClick={onRerun} className="font-medium underline underline-offset-2 cursor-pointer">重新評估</button>會比較準。
+        </p>
+      )}
       <div className="mt-3 flex items-center justify-between text-xs text-ink-3">
         <span>評估於 {relTime(e.evaluatedAt)}</span>
         <button onClick={onRerun} className="inline-flex items-center gap-1 hover:text-ink cursor-pointer"><RefreshCw className="size-3" />重新評估</button>

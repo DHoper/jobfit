@@ -49,6 +49,7 @@ export interface Evaluation {
   resume_tips: string[];
   dealbreakers_hit: string[];
   model?: string;
+  profileStamp?: string;
   evaluatedAt: string;
 }
 

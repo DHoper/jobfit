@@ -43,7 +43,17 @@ export const RULES: Rule[] = [
     id: 'salary_hidden', label: '薪資面議', level: 'medium', category: 'pay',
     why: '沒寫薪資範圍，面試前很難判斷值不值得去，也常是薪資偏低的訊號。',
     ask: '這個職缺的薪資範圍大概是多少？',
-    re: /(待遇|薪資|薪水)\s*面議/,
+    check: (job, text) => {
+      const m = text.match(/(待遇|薪資|薪水)\s*面議/);
+      if (!m) return null;
+      const s = parseSalary(job.salaryText);
+      return {
+        match: m[0],
+        why: s.negotiableFloor
+          ? `沒寫薪資範圍，只保證經常性薪資至少 ${s.negotiableFloor / 10000} 萬。實際給多少要面試時談。`
+          : '沒寫薪資範圍，面試前很難判斷值不值得去，也常是薪資偏低的訊號。',
+      };
+    },
   },
   {
     id: 'overtime_included', label: '薪資已含加班費', level: 'high', category: 'pay',
@@ -61,7 +71,7 @@ export const RULES: Rule[] = [
     id: 'commission', label: '底薪加獎金', level: 'medium', category: 'pay',
     why: '收入有一大部分看業績，實際拿到的可能遠低於寫的數字。',
     ask: '團隊裡多數人實際每月拿到多少？業績門檻怎麼定？',
-    re: /底薪.{0,10}(獎金|業績|抽成|分紅)|業績獎金|績效抽成/,
+    re: /底薪.{0,10}(獎金|業績|抽成|分紅)|績效抽成|業績抽成/,
   },
   {
     id: 'no_base', label: '無底薪或純抽成', level: 'high', category: 'pay',
@@ -124,13 +134,13 @@ export const RULES: Rule[] = [
     id: 'not_employee', label: '承攬或不保勞健保', level: 'high', category: 'contract',
     why: '不是正式僱傭關係，就沒有勞基法保障：沒有加班費、資遣費、勞退。',
     ask: '是正式員工嗎？公司會幫我投保勞健保和提撥勞退嗎？',
-    re: /承攬|勞(健)?保自理|(不|未)(投|加)保|無勞健保|開發票請款|接案合作/,
+    re: /承攬(制|關係|方式|合約|契約|性質)|以承攬|勞(健)?保自理|(不|未)(投|加)保勞|無勞健保|開發票請款|接案合作/,
   },
   {
     id: 'dispatch', label: '派遣或約聘', level: 'medium', category: 'contract',
     why: '雇主可能不是你面試的那家公司，福利與穩定度要另外確認。',
     ask: '合約多久？期滿轉正的比例大概多少？',
-    re: /派遣|約聘|外包人員|駐點/,
+    re: /派遣|約聘|外包人員/,
   },
   {
     id: 'travel', label: '需出差或外派', level: 'low', category: 'contract',
@@ -144,7 +154,7 @@ export const RULES: Rule[] = [
     id: 'pressure', label: '抗壓性高', level: 'medium', category: 'work',
     why: '通常代表工作量大、壓力大，或主管風格強勢。',
     ask: '這個職位壓力最大的時候通常是什麼情況？',
-    re: /抗壓性?.{0,2}(高|佳|強|好)|能承受(高)?壓力|高壓|耐操|能吃苦/,
+    re: /抗壓性?.{0,2}?(高|佳|強|好)|能承受(高)?壓力|高壓(環境|工作|下)|耐操|能吃苦/,
   },
   {
     id: 'multitask', label: '一人多工', level: 'medium', category: 'work',
@@ -199,7 +209,7 @@ export const RULES: Rule[] = [
   {
     id: 'upfront_fee', label: '要先付錢', level: 'high', category: 'scam',
     why: '依就業服務法，雇主不得向求職者收取保證金或培訓費。',
-    re: /保證金|押金|訓練費|培訓費|(自費|先繳).{0,4}(培訓|訓練|課程|費用)|入職費/,
+    re: /(自付|自費|繳交?|先付|需付|預付|收取).{0,4}(保證金|押金|訓練費|培訓費|課程費|入職費|制服費)|(自費|先繳).{0,4}(培訓|訓練|課程)/,
   },
 ];
 

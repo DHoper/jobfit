@@ -24,5 +24,8 @@ export default defineConfig({
     permissions: ['storage', 'sidePanel', 'scripting', 'activeTab'],
     host_permissions: [...JOB_SITE_MATCHES, 'https://api.deepseek.com/*', 'https://*.workers.dev/*'],
     optional_host_permissions: ['https://*/*'],
+    commands: {
+      _execute_action: { suggested_key: { default: 'Alt+J' }, description: '打開投準側邊欄' },
+    },
   },
 });

@@ -30,11 +30,17 @@ export function useActiveJob() {
     if (!tab?.id) return setState({ kind: 'unsupported' });
     const url = tab.url || tab.pendingUrl || '';
     if (url && !/^https?:/.test(url)) return setState({ kind: 'unsupported' });
-    setState({ kind: 'loading', tabId: tab.id });
+    // 同一個分頁重新讀取時保留目前畫面，避免閃爍；換分頁才顯示讀取中
+    setState((prev) => (prev.kind === 'job' && prev.tabId === tab.id ? prev : { kind: 'loading', tabId: tab.id }));
     try {
       const res = await extract(tab.id);
       if (my !== seq.current) return;
-      setState(res?.ok ? { kind: 'job', tabId: tab.id, job: res.job } : { kind: 'not_job', tabId: tab.id, url });
+      setState((prev) => {
+        if (!res?.ok) return { kind: 'not_job', tabId: tab.id!, url };
+        // 內容沒變就沿用同一個物件，下游不會重新計算
+        if (prev.kind === 'job' && prev.job.id === res.job.id && prev.job.description === res.job.description) return prev;
+        return { kind: 'job', tabId: tab.id!, job: res.job };
+      });
     } catch {
       if (my !== seq.current) return;
       // 沒有權限讀這個網站：url 會是空的（沒有 tabs 權限），請使用者授權
@@ -80,11 +86,18 @@ export function useActiveJob() {
   return { state, reload: load, grant };
 }
 
-export async function highlight(tabId: number, terms: { text: string; level: string }[], focus?: string) {
-  try {
-    const [res] = await chrome.scripting.executeScript({ target: { tabId }, func: highlightInPage, args: [terms, focus] });
-    return (res?.result as { ok: boolean; count: number }) ?? { ok: false, count: 0 };
-  } catch {
-    return { ok: false, count: 0 };
-  }
+// 依序執行，避免「清除」和「標示」同時送出時順序錯亂
+let queue: Promise<unknown> = Promise.resolve();
+export function highlight(tabId: number, terms: { text: string; level: string }[], focus?: string) {
+  const run = async () => {
+    try {
+      const [res] = await chrome.scripting.executeScript({ target: { tabId }, func: highlightInPage, args: [terms, focus ?? null] });
+      return (res?.result as { ok: boolean; count: number }) ?? { ok: false, count: 0 };
+    } catch {
+      return { ok: false, count: 0 };
+    }
+  };
+  const p = queue.then(run, run);
+  queue = p;
+  return p;
 }

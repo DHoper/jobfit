@@ -16,31 +16,43 @@ export default defineContentScript({
         :host { all: initial; }
         button {
           display: flex; flex-direction: column; align-items: center; gap: 6px;
-          padding: 10px 7px 10px 9px; border: 0; border-radius: 10px 0 0 10px; cursor: pointer;
+          padding: 10px 8px 12px 10px; border: 0; border-radius: 12px 0 0 12px; cursor: pointer;
           background: #0F1733; color: #fff; box-shadow: -4px 6px 18px rgba(15,23,51,.28);
           font: 600 13px/1.25 'PingFang TC','Noto Sans TC','Microsoft JhengHei',system-ui,sans-serif;
-          writing-mode: vertical-rl; letter-spacing: .12em;
-          transform: translateX(4px); transition: transform .15s ease;
+          transform: translateX(3px); transition: transform .15s ease;
         }
         button:hover { transform: translateX(0); }
         button:focus-visible { outline: 2px solid #FFC93C; outline-offset: 2px; }
-        svg { width: 22px; height: 22px; writing-mode: horizontal-tb; }
+        svg { width: 24px; height: 24px; }
+        .label { writing-mode: vertical-rl; letter-spacing: .14em; }
         .count {
-          writing-mode: horizontal-tb; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+          min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
           display: grid; place-items: center; font-size: 11px; letter-spacing: 0;
           background: #FFC93C; color: #0F1733;
         }
         .count.high { background: #E5484D; color: #fff; }
         .count[hidden] { display: none; }
+        .label.apply { color: #6EE7A1; } .label.maybe { color: #FFC93C; } .label.skip { color: #FF8A8A; }
         @media (prefers-reduced-motion: reduce) { button { transition: none; } }
       </style>
       <button type="button" aria-label="投準：評估這個職缺">
         <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#FFC93C"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#0F1733" stroke-width="2.4"/><path d="M16 4.5v5M16 22.5v5M4.5 16h5M22.5 16h5" stroke="#0F1733" stroke-width="2.4" stroke-linecap="round"/><path d="m12.4 16.2 2.5 2.5 4.8-5" fill="none" stroke="#0F1733" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>評估職缺</span>
+        <span class="label">評估職缺</span>
         <span class="count" hidden></span>
       </button>`;
     const btn = root.querySelector('button')!;
     const count = root.querySelector<HTMLElement>('.count')!;
+    const label = root.querySelector<HTMLElement>('.label')!;
+    const VERDICT = { APPLY: ['建議投', 'apply'], MAYBE: ['再想想', 'maybe'], SKIP: ['別投', 'skip'] } as const;
+    let jobId = '';
+    // 評估過的職缺：標籤直接顯示結論
+    const showVerdict = async () => {
+      const { records = {} } = await chrome.storage.local.get('records');
+      const v = (records as Record<string, { evaluation?: { verdict: keyof typeof VERDICT } }>)[jobId]?.evaluation?.verdict;
+      label.className = 'label' + (v ? ` ${VERDICT[v][1]}` : '');
+      label.textContent = v ? VERDICT[v][0] : '評估職缺';
+    };
+    chrome.storage.onChanged.addListener((c, area) => area === 'local' && c.records && jobId && showVerdict());
     btn.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'open-side-panel' }));
 
     // 104 是單頁應用程式：換頁不會重新載入，所以監看網址
@@ -53,8 +65,12 @@ export default defineContentScript({
       count.hidden = true;
       if (!onJob) return;
       if (!host.isConnected) document.documentElement.appendChild(host);
+      jobId = '';
+      showVerdict();
       const res = await extractJobInPage();
       if (!res.ok || location.href !== last) return;
+      jobId = res.job.id;
+      showVerdict();
       const hits = checkRules(res.job);
       if (!hits.length) return;
       const high = hits.filter((h) => h.level === 'high').length;

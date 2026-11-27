@@ -405,6 +405,7 @@ function RecordsPage() {
 function SettingsPage() {
   const { draft: s, update, state } = useAutosave<Settings>('settings');
   const [clear, setClear] = useState(false);
+  const [testing, setTesting] = useState<'idle' | 'busy' | 'ok' | string>('idle');
   const fileRef = useRef<HTMLInputElement>(null);
   if (!s) return null;
 
@@ -439,9 +440,32 @@ function SettingsPage() {
         <Field label="模型" hint={`留空使用 ${DEFAULT_MODEL}`}>
           <Input placeholder={DEFAULT_MODEL} value={s.model || ''} onChange={(e) => update({ model: e.target.value })} className="max-w-60" />
         </Field>
-        <p className={cn('flex items-center gap-2 text-[13px]', hasEndpoint(s) ? 'text-go' : 'text-ink-3')}>
-          <Sparkles className="size-4" />{hasEndpoint(s) ? (s.apiKey ? '使用你的 DeepSeek 金鑰' : '使用代理伺服器') : '尚未設定，只能使用規則偵測'}
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            disabled={!hasEndpoint(s) || testing === 'busy'}
+            onClick={async () => {
+              setTesting('busy');
+              try {
+                await chatJson(s, [{ role: 'system', content: '只輸出 JSON：{"ok": true}' }, { role: 'user', content: 'ping' }], (c) => {
+                  if (!c.includes('ok')) throw new Error('格式不正確');
+                  return true;
+                });
+                setTesting('ok');
+              } catch (e) {
+                setTesting((e as Error).message || '連線失敗');
+              }
+            }}
+          >
+            <Sparkles />{testing === 'busy' ? '測試中…' : '測試連線'}
+          </Button>
+          <span role="status" className={cn('text-[13px]', testing === 'ok' ? 'text-go' : testing === 'idle' || testing === 'busy' ? 'text-ink-3' : 'text-stop')}>
+            {testing === 'ok'
+              ? `連線正常（${s.apiKey ? '你的 DeepSeek 金鑰' : '代理伺服器'}）`
+              : testing === 'idle' || testing === 'busy'
+                ? hasEndpoint(s) ? (s.apiKey ? '目前使用你的 DeepSeek 金鑰' : '目前使用代理伺服器') : '尚未設定，只能使用規則偵測'
+                : testing}
+          </span>
+        </div>
       </Block>
       <Block title="備份" desc="包含個人檔案與投遞紀錄，不含金鑰。">
         <div className="flex flex-wrap gap-2">

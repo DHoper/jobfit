@@ -28,15 +28,6 @@ export async function extractJobInPage(): Promise<ExtractResult> {
     : host.endsWith('linkedin.com') ? 'linkedin'
     : 'other';
 
-  // 使用者有選取文字時，以選取的內容為準（適用任何網站）
-  const sel = String(window.getSelection?.() ?? '').trim();
-  if (sel.length > 120) {
-    return {
-      ok: true,
-      job: { id: `url:${url.split('?')[0] ?? url}`, url, site, title: document.querySelector('h1')?.textContent?.trim() || document.title, description: sel, source: 'selection', fetchedAt: now },
-    };
-  }
-
   // 104：用職缺頁自己載入資料的 API，拿到完整的結構化內容
   if (site === '104') {
     const m = location.pathname.match(/^\/job\/([a-z0-9]+)/i);
@@ -85,6 +76,15 @@ export async function extractJobInPage(): Promise<ExtractResult> {
     } catch {
       /* 換成讀取頁面文字 */
     }
+  }
+
+  // 使用者有選取文字時，以選取的內容為準（104 已經有完整資料，不受影響）
+  const sel = String(window.getSelection?.() ?? '').trim();
+  if (sel.length > 120) {
+    return {
+      ok: true,
+      job: { id: `url:${url.split('?')[0] ?? url}`, url, site, title: document.querySelector('h1')?.textContent?.trim() || document.title, description: sel, source: 'selection', fetchedAt: now },
+    };
   }
 
   // 其他網站：多數職缺頁都有 schema.org 的 JobPosting 資料
@@ -137,7 +137,7 @@ export async function extractJobInPage(): Promise<ExtractResult> {
 }
 
 /** 用 CSS Custom Highlight API 在頁面上標出地雷字詞，不改動網站的 DOM */
-export function highlightInPage(terms: { text: string; level: string }[], focus?: string) {
+export function highlightInPage(terms: { text: string; level: string }[], focus?: string | null) {
   const NAMES = ['jobfit-high', 'jobfit-medium', 'jobfit-low', 'jobfit-focus'];
   const H = (globalThis as any).Highlight;
   const registry = (CSS as any).highlights;

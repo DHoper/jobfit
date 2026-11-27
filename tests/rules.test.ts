@@ -100,3 +100,26 @@ describe('parseEvaluation', () => {
     expect(parseEvaluation('{"verdict":"YES"}').verdict).toBe('MAYBE');
   });
 });
+
+describe('常見誤判', () => {
+  it.each([
+    ['電機：負責高壓電設備維護', 'pressure'],
+    ['本公司承攬各大公共工程', 'not_employee'],
+    ['期貨保證金管理與風控', 'upfront_fee'],
+    ['公司全額補助訓練費', 'upfront_fee'],
+    ['福利：年終獎金、業績獎金', 'commission'],
+    ['駐點工程師，於客戶端維運', 'dispatch'],
+  ])('%s 不算 %s', (text, id) => {
+    expect(ids(job(text))).not.toContain(id);
+  });
+  it('真正的地雷仍然抓得到', () => {
+    expect(ids(job('以承攬方式合作'))).toContain('not_employee');
+    expect(ids(job('錄取後需繳交保證金'))).toContain('upfront_fee');
+    expect(ids(job('需能在高壓環境下工作'))).toContain('pressure');
+    expect(ids(job('底薪 3 萬加業績獎金'))).toContain('commission');
+  });
+  it('面議會說明 104 的最低保證', () => {
+    const h = checkRules(job('待遇面議', { salaryText: '待遇面議（經常性薪資達4萬元或以上）' })).find((x) => x.id === 'salary_hidden');
+    expect(h?.why).toContain('至少 4 萬');
+  });
+});

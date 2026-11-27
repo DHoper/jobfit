@@ -34,3 +34,15 @@ describe('tidy', () => {
     expect(tidy('陳⼤⽂，後端⼯程師：Go')).toBe('陳大文，後端工程師：Go');
   });
 });
+
+import { readResumeFile } from '../src/lib/resume-file';
+describe('readResumeFile', () => {
+  it('讀出大量空字元時給清楚的錯誤', async () => {
+    const f = new File(['\u0000'.repeat(60) + ' API 3,000 QPS'], 'x.txt', { type: 'text/plain' });
+    await expect(readResumeFile(f)).rejects.toThrow(/讀不出來/);
+  });
+  it('純文字檔', async () => {
+    const f = new File(['王小明\n後端工程師，負責訂單系統 API，尖峰 3,000 QPS，帶 2 人小組。'], 'x.txt', { type: 'text/plain' });
+    await expect(readResumeFile(f)).resolves.toContain('後端工程師');
+  });
+});

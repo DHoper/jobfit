@@ -319,6 +319,10 @@ function DealbreakersPage() {
         </div>
       </Block>
 
+      <Block title="自訂關鍵字" desc="職缺出現這些字就直接建議跳過，例如產業、公司名、合約條款。">
+        <KeywordInput value={p.keywords || []} onChange={(keywords) => update({ keywords })} />
+      </Block>
+
       {cats.map((c) => (
         <Block key={c} title={CATEGORY_LABEL[c]}>
           <ul className="divide-y divide-line rounded-lg bg-surface ring-1 ring-line">
@@ -337,10 +341,6 @@ function DealbreakersPage() {
           </ul>
         </Block>
       ))}
-
-      <Block title="自訂關鍵字" desc="職缺出現這些字就直接建議跳過，例如產業、公司名、合約條款。">
-        <KeywordInput value={p.keywords || []} onChange={(keywords) => update({ keywords })} />
-      </Block>
 
       <Block title="其他不能接受的條件" desc="規則和關鍵字抓不到的，寫給 AI 參考。">
         <Textarea rows={3} placeholder="例如：通勤超過 1 小時、要求簽競業條款、博弈產業" value={p.dealbreakerNote || ''} onChange={(e) => update({ dealbreakerNote: e.target.value })} />

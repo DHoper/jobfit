@@ -13,7 +13,13 @@ export async function readResumeFile(file: File): Promise<string> {
   else if (name.endsWith('.docx')) text = await readDocx(await file.arrayBuffer());
   else if (name.endsWith('.doc')) throw new ResumeFileError('不支援舊版 .doc，請在 Word 另存成 .docx 或 PDF');
   else text = await file.text();
+  const raw = text;
   text = tidy(text);
+  // 字型沒有對照表的 PDF 會讀出一堆空字元：與其給你亂碼，不如直接說清楚
+  const broken = (raw.match(/[\u0000\ufffd]/g) || []).length;
+  if (broken > 20 && broken > raw.length * 0.15) {
+    throw new ResumeFileError('這個 PDF 的中文字讀不出來（字型沒有附文字對照）。請用 Word 另存成 PDF，或直接貼上文字。');
+  }
   if (text.length < 30) {
     throw new ResumeFileError(name.endsWith('.pdf') ? '這個 PDF 讀不到文字，可能是掃描的圖片。請改貼上文字。' : '檔案裡讀不到文字');
   }
@@ -24,6 +30,7 @@ export function tidy(s: string): string {
   return s
     // 有些 PDF 的中文字型會把「大」「工」存成外觀相同的部首字元（U+2F00–2FDF、U+2E80–2EFF），轉回一般漢字
     .replace(/[\u2e80-\u2eff\u2f00-\u2fdf]/g, (c) => c.normalize('NFKC'))
+    .replace(/[\u0000\ufffd]/g, '')
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t ]+/g, ' ')
     .replace(/ *\n */g, '\n')

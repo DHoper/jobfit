@@ -11,7 +11,8 @@
     "test": "vitest run",
     "postinstall": "wxt prepare",
     "package": "wxt build && mkdir -p dist && rm -f dist/jobfit-extension.zip && cd .output/chrome-mv3 && zip -qr ../../dist/jobfit-extension.zip .",
-    "e2e": "node tests/e2e.mjs"
+    "e2e": "node tests/e2e.mjs",
+    "screenshots": "node scripts/screenshots/shoot.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",

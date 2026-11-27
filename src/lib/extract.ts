@@ -28,6 +28,19 @@ export async function extractJobInPage(): Promise<ExtractResult> {
     : host.endsWith('linkedin.com') ? 'linkedin'
     : 'other';
 
+  // 各求職網站的職缺頁網址；不是職缺頁（首頁、搜尋頁）就不評估
+  const path = location.pathname;
+  const params = new URLSearchParams(location.search);
+  const liJob = path.match(/^\/jobs\/view\/(\d+)/)?.[1] || params.get('currentJobId') || '';
+  const jobKey =
+    site === '1111' ? path.match(/^\/job\/(\d+)/)?.[1]
+    : site === 'cake' ? path.match(/^\/companies\/[^/]+\/jobs\/([^/?]+)/)?.[1]
+    : site === 'yourator' ? path.match(/^\/companies\/[^/]+\/jobs\/(\d+)/)?.[1]
+    : site === 'linkedin' ? liJob || undefined
+    : undefined;
+  const knownSite = site !== '104' && site !== 'other';
+  const idFor = (fallback: string) => (jobKey ? `${site}:${jobKey}` : `url:${fallback}`);
+
   // 104：用職缺頁自己載入資料的 API，拿到完整的結構化內容
   if (site === '104') {
     const m = location.pathname.match(/^\/job\/([a-z0-9]+)/i);
@@ -83,8 +96,31 @@ export async function extractJobInPage(): Promise<ExtractResult> {
   if (sel.length > 120) {
     return {
       ok: true,
-      job: { id: `url:${url.split('?')[0] ?? url}`, url, site, title: document.querySelector('h1')?.textContent?.trim() || document.title, description: sel, source: 'selection', fetchedAt: now },
+      job: { id: idFor(url.split('?')[0] ?? url), url, site, title: document.querySelector('h1')?.textContent?.trim() || document.title, description: sel, source: 'selection', fetchedAt: now },
     };
+  }
+
+  if (knownSite && !jobKey) return { ok: false, reason: 'not_job' };
+
+  // LinkedIn：登入後的頁面沒有 JSON-LD，直接讀職缺說明區塊
+  if (site === 'linkedin') {
+    const desc = document.querySelector<HTMLElement>('#job-details, .jobs-description__content, .jobs-box__html-content, .show-more-less-html__markup');
+    if (desc && desc.innerText.trim().length > 80) {
+      const pick = (sel: string) => document.querySelector<HTMLElement>(sel)?.innerText?.trim();
+      return {
+        ok: true,
+        job: {
+          id: idFor(url),
+          url: `https://www.linkedin.com/jobs/view/${jobKey}/`,
+          site,
+          title: pick('.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, .top-card-layout__title, h1') || document.title,
+          company: pick('.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .topcard__org-name-link'),
+          description: desc.innerText.replace(/\n{3,}/g, '\n\n').trim(),
+          source: 'page',
+          fetchedAt: now,
+        },
+      };
+    }
   }
 
   // 其他網站：多數職缺頁都有 schema.org 的 JobPosting 資料
@@ -95,8 +131,10 @@ export async function extractJobInPage(): Promise<ExtractResult> {
       if (!posting) continue;
       const bs = posting.baseSalary?.value;
       const unit = { MONTH: '月薪', YEAR: '年薪', HOUR: '時薪', DAY: '日薪' }[String(bs?.unitText || '').toUpperCase() as 'MONTH'] || '';
-      const salaryText = bs
-        ? `${unit}${bs.minValue ?? bs.value ?? ''}${bs.maxValue && bs.maxValue !== bs.minValue ? `~${bs.maxValue}` : ''}元`
+      const fmt = (n: unknown) => (typeof n === 'number' ? n.toLocaleString('en-US') : String(n ?? ''));
+      const lo = bs?.minValue ?? bs?.value;
+      const salaryText = bs && lo !== undefined
+        ? `${unit ? unit + ' ' : ''}${fmt(lo)}${bs.maxValue && bs.maxValue !== bs.minValue ? `~${fmt(bs.maxValue)}` : ''} 元`
         : undefined;
       const loc = [].concat(posting.jobLocation || []).map((l: any) => l?.address?.addressLocality || l?.address?.addressRegion).filter(Boolean)[0];
       const description = clean(posting.description);
@@ -130,6 +168,11 @@ export async function extractJobInPage(): Promise<ExtractResult> {
   ) as HTMLElement | undefined;
   const text = (root || document.body).innerText.replace(/\n{3,}/g, '\n\n').trim();
   if (text.length < 200) return { ok: false, reason: 'empty' };
+  // 沒有結構化資料的網站：至少要像一份職缺，才不會把新聞或首頁當職缺評估
+  if (!knownSite && !jobKey) {
+    const signals = [/工作內容|職務內容|職務說明|job description|responsibilities/i, /條件要求|應徵條件|資格|requirements|qualifications/i, /薪資|待遇|月薪|年薪|salary|compensation/i, /應徵|投遞|apply/i];
+    if (signals.filter((r) => r.test(text)).length < 2) return { ok: false, reason: 'not_job' };
+  }
   return {
     ok: true,
     job: { id: `url:${url.split('?')[0] ?? url}`, url, site, title: document.querySelector('h1')?.textContent?.trim() || document.title, description: text.slice(0, 20000), source: 'page', fetchedAt: now },

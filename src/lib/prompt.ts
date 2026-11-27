@@ -1,5 +1,4 @@
 // 給 DeepSeek 的提示詞與回傳格式驗證。改評估邏輯主要改這裡。
-import { z } from 'zod';
 import type { Evaluation, Job, Profile, RuleHit } from './types';
 import { RULE_BY_ID } from './rules';
 import { formatYuan } from './salary';
@@ -25,6 +24,8 @@ const SYSTEM = [
   '3. 命中使用者底線時，verdict 一律為 SKIP，並寫進 dealbreakers_hit。',
   '4. 「規則偵測到的地雷」已經會顯示給使用者，red_flags 只放規則沒抓到、但從語意看得出來的問題；沒有就給空陣列。',
   '5. 判斷標準：APPLY = 主要要求大多符合且沒有嚴重地雷；MAYBE = 有明顯缺口或需要問清楚的地方；SKIP = 方向不符、缺口太大或地雷嚴重。',
+  '   score 計分：必要條件符合程度占 60、加分條件 20、與職涯目標和偏好（地點、遠端、產業）的契合 20。地雷不扣 score，只影響 verdict。',
+  '   職缺薪資上限低於使用者的薪資底線時，視同命中底線。',
   '6. 用繁體中文、台灣用語，語氣直接具體，不客套。每個陣列最多 5 項，每項一句話。',
   '7. 只輸出 JSON，格式如下：',
   SCHEMA,
@@ -55,7 +56,8 @@ export function buildEvaluationMessages(profile: Profile, job: Job, hits: RuleHi
     field('期望地點／遠端', profile.location),
     field('其他偏好', profile.preferences),
     field('不能接受的條件（底線）', dealbreakers),
-    field('舊履歷全文', (profile.resume || '').slice(0, 8000)),
+    // 已經填了經歷欄位時，舊履歷只當補充，縮短以節省用量
+    field('舊履歷全文', (profile.resume || '').slice(0, (profile.experience || '').trim() ? 3000 : 8000)),
     '',
     '# 職缺',
     field('職稱', job.title),
@@ -76,9 +78,30 @@ export function buildEvaluationMessages(profile: Profile, job: Job, hits: RuleHi
     .join('\n');
 
   return [
-    { role: 'system' as const, content: SYSTEM },
+    { role: 'system' as const, content: `${SYSTEM}\n今天是 ${new Date().toISOString().slice(0, 10)}。` },
     { role: 'user' as const, content: user },
   ];
+}
+
+/** 把評估整理成純文字，方便貼給朋友或存到筆記 */
+export function evaluationToText(job: Job, e: Evaluation, hits: RuleHit[]): string {
+  const V = { APPLY: '建議投', MAYBE: '再想想', SKIP: '別投' };
+  const mark = { met: '✓', partial: '△', gap: '✗' };
+  const lines = [
+    `${job.title}${job.company ? `｜${job.company}` : ''}`,
+    job.salaryText ? `薪資：${job.salaryText}` : '',
+    `結論：${V[e.verdict]}（符合度 ${e.score}）`,
+    e.summary,
+    '',
+    hits.length ? `地雷：${hits.map((h) => h.label).join('、')}` : '',
+    e.requirements.length ? '需求對照：' : '',
+    ...e.requirements.map((r) => `${mark[r.status]} ${r.requirement}：${r.evidence}`),
+    e.questions_to_ask.length ? '\n面試要問：' : '',
+    ...e.questions_to_ask.map((q, i) => `${i + 1}. ${q}`),
+    '',
+    job.url,
+  ];
+  return lines.filter((l, i, a) => l !== '' || (a[i - 1] ?? '') !== '').join('\n').trim();
 }
 
 export function buildResumeSplitMessages(resume: string) {
@@ -95,23 +118,12 @@ export function buildResumeSplitMessages(resume: string) {
   ];
 }
 
-const str = z.coerce.string().catch('');
-const strArr = z.array(z.coerce.string()).catch([]).transform((a) => a.filter(Boolean).slice(0, 6));
-
-const EvalSchema = z.object({
-  verdict: z.enum(['APPLY', 'MAYBE', 'SKIP']).catch('MAYBE'),
-  score: z.coerce.number().catch(50).transform((n) => Math.max(0, Math.min(100, Math.round(n)))),
-  summary: str,
-  requirements: z
-    .array(z.object({ requirement: str, status: z.enum(['met', 'partial', 'gap']).catch('partial'), evidence: str }))
-    .catch([]),
-  red_flags: z.array(z.object({ flag: str, quote: str, why: str })).catch([]),
-  pros: strArr,
-  cons: strArr,
-  questions_to_ask: strArr,
-  resume_tips: strArr,
-  dealbreakers_hit: strArr,
-});
+// 回傳格式驗證：AI 偶爾會漏欄位、型別不對，這裡把不合格的值換成安全的預設值
+const str = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'object' ? '' : String(v));
+const arr = (v: unknown) => (Array.isArray(v) ? v : []);
+const strArr = (v: unknown) => arr(v).map(str).filter(Boolean).slice(0, 6);
+const oneOf = <T extends string>(v: unknown, opts: readonly T[], fallback: T): T => (opts.includes(v as T) ? (v as T) : fallback);
+const obj = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
 
 export function parseJsonLoose(content: string): unknown {
   try {
@@ -124,11 +136,29 @@ export function parseJsonLoose(content: string): unknown {
 }
 
 export function parseEvaluation(content: string, model?: string): Evaluation {
-  const data = EvalSchema.parse(parseJsonLoose(content));
-  return { ...data, model, evaluatedAt: new Date().toISOString() };
+  const d = obj(parseJsonLoose(content));
+  const n = Number(d.score);
+  return {
+    verdict: oneOf(d.verdict, ['APPLY', 'MAYBE', 'SKIP'] as const, 'MAYBE'),
+    score: Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 50,
+    summary: str(d.summary),
+    requirements: arr(d.requirements).map(obj).map((r) => ({
+      requirement: str(r.requirement),
+      status: oneOf(r.status, ['met', 'partial', 'gap'] as const, 'partial'),
+      evidence: str(r.evidence),
+    })).filter((r) => r.requirement),
+    red_flags: arr(d.red_flags).map(obj).map((f) => ({ flag: str(f.flag), quote: str(f.quote), why: str(f.why) })).filter((f) => f.flag),
+    pros: strArr(d.pros),
+    cons: strArr(d.cons),
+    questions_to_ask: strArr(d.questions_to_ask),
+    resume_tips: strArr(d.resume_tips),
+    dealbreakers_hit: strArr(d.dealbreakers_hit),
+    model,
+    evaluatedAt: new Date().toISOString(),
+  };
 }
 
-const SplitSchema = z.object({ title: str, years: str, experience: str, skills: str, stories: str });
 export function parseResumeSplit(content: string) {
-  return SplitSchema.parse(parseJsonLoose(content));
+  const d = obj(parseJsonLoose(content));
+  return { title: str(d.title), years: str(d.years), experience: str(d.experience), skills: str(d.skills), stories: str(d.stories) };
 }

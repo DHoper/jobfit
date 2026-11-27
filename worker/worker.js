@@ -1,4 +1,4 @@
-// 投準的 AI 代理（Cloudflare Worker）
+// 避雷針的 AI 代理（Cloudflare Worker）
 // 保管站方的 DeepSeek 金鑰，讓使用者不用自己申請、輸入任何金鑰。
 //
 // 部署：
@@ -8,7 +8,7 @@
 //   4. 把部署後的網址填進 src/lib/ai.ts 的 DEFAULT_PROXY_URL，重新 npm run build
 //
 // 保護措施：
-//   - 只接受投準擴充功能送來的請求（Origin 檢查，可在 wrangler.toml 設定允許的擴充功能 ID）
+//   - 只接受避雷針擴充功能送來的請求（Origin 檢查，可在 wrangler.toml 設定允許的擴充功能 ID）
 //   - 每個 IP 每天最多 DAILY_LIMIT 次（需要綁定 KV：RATE）
 //   - 只轉送評估需要的欄位；模型由 wrangler.toml 的 MODEL 決定（預設 deepseek-chat）
 
@@ -61,6 +61,7 @@ export default {
         messages,
         temperature: Math.min(1, Math.max(0, Number(body.temperature ?? 0.2))),
         response_format: { type: 'json_object' },
+        max_tokens: 2000, // 控制每次的費用上限
       }),
     });
     if (!res.ok) return json({ error: `upstream ${res.status}` }, 502, cors);

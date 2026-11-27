@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Download, ExternalLink, FileUp, Search, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { BRAND } from '@/lib/brand';
 import { Button, ConfirmDialog, Field, Input, Mark, Select, Switch, Textarea, cn } from '@/components/ui';
 import { LEVEL_META, SITE_LABEL, VerdictPill, relTime } from '@/components/shared';
 import { CATEGORY_LABEL, RULES, type Category } from '@/lib/rules';
@@ -65,7 +66,7 @@ export default function App() {
       <aside className="border-b border-line bg-surface md:sticky md:top-0 md:h-screen md:border-b-0 md:border-r">
         <div className="flex h-14 items-center gap-2.5 px-5">
           <Mark className="size-7" />
-          <span className="text-base font-semibold tracking-wide">投準</span>
+          <span className="text-base font-semibold tracking-wide">{BRAND.name}</span>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:pb-0">
           {PAGES.map((p) => (
@@ -242,7 +243,7 @@ function DealbreakersPage() {
       <PageHead
         title="底線與薪資"
         state={state}
-        lead="職缺碰到這裡設定的條件時，投準會直接建議跳過，不論 AI 怎麼判斷。沒開的項目仍然會標示出來，只是不會直接否決。"
+        lead={`職缺碰到這裡設定的條件時，${BRAND.name}會直接建議跳過，不論 AI 怎麼判斷。沒開的項目仍然會標示出來，只是不會直接否決。`}
       />
       <Block title="薪資底線" desc="職缺的薪資上限低於這個數字時建議跳過。面議的職缺不會被擋。">
         <div className="flex flex-wrap items-end gap-3">
@@ -318,7 +319,7 @@ function RecordsPage() {
       rows.push([r.title, r.company || '', SITE_LABEL[r.site] ?? '', r.salaryText || '', r.evaluation?.verdict || '', String(r.evaluation?.score ?? ''),
         r.ruleHits.filter((h) => h.level === 'high').map((h) => h.label).join('、'), STATUS_LABEL[r.status], r.updatedAt.slice(0, 10), r.url]);
     const csv = '﻿' + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
-    download(`投準投遞紀錄-${today()}.csv`, csv, 'text/csv');
+    download(`${BRAND.name}投遞紀錄-${today()}.csv`, csv, 'text/csv');
   };
 
   return (
@@ -411,7 +412,7 @@ function SettingsPage() {
 
   const exportAll = async () => {
     const { profile, records } = await getAll();
-    download(`投準備份-${today()}.json`, JSON.stringify({ app: 'jobfit', version: 2, exportedAt: new Date().toISOString(), profile, records }, null, 2), 'application/json');
+    download(`${BRAND.name}備份-${today()}.json`, JSON.stringify({ app: 'jobfit', version: 2, exportedAt: new Date().toISOString(), profile, records }, null, 2), 'application/json');
   };
   const importAll = async (f: File) => {
     try {
@@ -423,7 +424,7 @@ function SettingsPage() {
       toast.success('已匯入，重新整理頁面後生效');
       setTimeout(() => location.reload(), 800);
     } catch {
-      toast.error('這個檔案不是投準匯出的備份');
+      toast.error(`這個檔案不是${BRAND.name}匯出的備份`);
     }
   };
 
@@ -477,7 +478,7 @@ function SettingsPage() {
       <Block title="清除資料">
         <div><Button variant="danger" onClick={() => setClear(true)}><Trash2 />清除所有投遞紀錄</Button></div>
       </Block>
-      <p className="border-t border-line pt-6 text-xs text-ink-3">投準 {chrome.runtime.getManifest().version}・<a className="underline" href="https://github.com/DHoper/jobfit" target="_blank" rel="noreferrer">原始碼</a></p>
+      <p className="border-t border-line pt-6 text-xs text-ink-3">{BRAND.name} {chrome.runtime.getManifest().version}・<a className="underline" href="https://github.com/DHoper/jobfit" target="_blank" rel="noreferrer">原始碼</a></p>
       <ConfirmDialog
         open={clear}
         onOpenChange={setClear}

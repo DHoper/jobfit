@@ -33,7 +33,7 @@ async function once(settings: Settings, messages: Msg[], temperature: number, si
           method: 'POST',
           signal,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, messages, temperature, response_format: { type: 'json_object' } }),
+          body: JSON.stringify({ model, messages, temperature, max_tokens: 2000, response_format: { type: 'json_object' } }),
         })
       : await fetch(`${proxy}/evaluate`, {
           method: 'POST',

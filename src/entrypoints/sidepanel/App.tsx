@@ -5,12 +5,14 @@ import {
   AlertTriangle, BookmarkPlus, Building2, Check, ChevronDown, CircleDashed, Copy, ExternalLink, FileSearch,
   Lock, MapPin, MousePointerClick, RefreshCw, Settings, Sparkles, Wallet, X,
 } from 'lucide-react';
+import { BRAND } from '@/lib/brand';
 import { Button, Mark, Select, Switch, Tip, cn } from '@/components/ui';
 import { LEVEL_META, Quote, SITE_LABEL, VERDICT_META, VerdictPill, relTime } from '@/components/shared';
 import { RULES, checkRules } from '@/lib/rules';
 import { applyConflicts, findConflicts, hasUsableProfile, type Conflict } from '@/lib/judge';
 import { hasEndpoint } from '@/lib/ai';
 import { profileStamp, type EvalSession } from '@/lib/evaluate';
+import { evaluationToText } from '@/lib/prompt';
 import { STATUS_LABEL, STATUS_ORDER, saveRecord, updateRecord, useStored } from '@/lib/storage';
 import { highlight, useActiveJob } from '@/lib/tab';
 import type { Evaluation, Job, JobRecord, RuleHit, Status } from '@/lib/types';
@@ -36,7 +38,7 @@ export default function App() {
     <div className="flex h-screen flex-col">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
         <Mark className="size-6" />
-        <span className="text-[15px] font-semibold tracking-wide">投準</span>
+        <span className="text-[15px] font-semibold tracking-wide">{BRAND.name}</span>
         <nav className="ml-3 flex h-full items-stretch gap-1" role="tablist">
           {(['job', 'records'] as View[]).map((v) => (
             <button
@@ -78,7 +80,7 @@ function JobPane() {
       <Empty
         icon={<Lock />}
         title="需要你同意讀取這個網站"
-        body="投準預設只讀取幾個主要的求職網站。允許之後，這個網站的職缺也能評估；只在你打開側邊欄時才會讀取。"
+        body={`${BRAND.name}預設只讀取幾個主要的求職網站。允許之後，這個網站的職缺也能評估；只在你打開側邊欄時才會讀取。`}
         action={<Button variant="primary" onClick={grant}>允許讀取這個網站</Button>}
       />
     );
@@ -147,7 +149,15 @@ function JobView({ job, tabId, onReload }: { job: Job; tabId: number; onReload: 
         {busy ? (
           <Evaluating since={session.pending[job.id]!} onCancel={() => chrome.runtime.sendMessage({ type: 'cancel-evaluate', id: job.id })} />
         ) : evaluation ? (
-          <VerdictBlock e={evaluation} stale={stale} onRerun={evaluate} />
+          <VerdictBlock
+            e={evaluation}
+            stale={stale}
+            onRerun={evaluate}
+            onCopy={async () => {
+              await navigator.clipboard.writeText(evaluationToText(job, evaluation, hits));
+              toast.success('已複製評估，可以貼給朋友或存進筆記');
+            }}
+          />
         ) : (
           <PreJudge
             hits={hits}
@@ -336,7 +346,7 @@ function Evaluating({ since, onCancel }: { since: number; onCancel: () => void }
   );
 }
 
-function VerdictBlock({ e, stale, onRerun }: { e: Evaluation; stale: boolean; onRerun: () => void }) {
+function VerdictBlock({ e, stale, onRerun, onCopy }: { e: Evaluation; stale: boolean; onRerun: () => void; onCopy: () => void }) {
   const m = VERDICT_META[e.verdict];
   return (
     <div>
@@ -361,7 +371,10 @@ function VerdictBlock({ e, stale, onRerun }: { e: Evaluation; stale: boolean; on
       )}
       <div className="mt-3 flex items-center justify-between text-xs text-ink-3">
         <span>評估於 {relTime(e.evaluatedAt)}</span>
-        <button onClick={onRerun} className="inline-flex items-center gap-1 hover:text-ink cursor-pointer"><RefreshCw className="size-3" />重新評估</button>
+        <span className="flex items-center gap-3">
+          <button onClick={onCopy} className="inline-flex items-center gap-1 hover:text-ink cursor-pointer"><Copy className="size-3" />複製評估</button>
+          <button onClick={onRerun} className="inline-flex items-center gap-1 hover:text-ink cursor-pointer"><RefreshCw className="size-3" />重新評估</button>
+        </span>
       </div>
     </div>
   );

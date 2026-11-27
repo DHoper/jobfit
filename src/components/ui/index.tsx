@@ -8,6 +8,7 @@ import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Check, ChevronDown, X } from 'lucide-react';
+import { MARK_PATH } from '@/lib/brand';
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
 
@@ -193,14 +194,12 @@ export function ConfirmDialog({
   );
 }
 
-// ---------- 品牌標誌：準星裡的勾 ----------
+// ---------- 品牌標誌：黃底閃電 ----------
 export function Mark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true" className={className}>
       <rect width="32" height="32" rx="8" fill="#FFC93C" />
-      <circle cx="16" cy="16" r="8.5" fill="none" stroke="#0F1733" strokeWidth="2.4" />
-      <path d="M16 4.5v5M16 22.5v5M4.5 16h5M22.5 16h5" stroke="#0F1733" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="m12.4 16.2 2.5 2.5 4.8-5" fill="none" stroke="#0F1733" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={MARK_PATH} fill="#0F1733" stroke="#0F1733" strokeWidth="1.2" strokeLinejoin="round" />
     </svg>
   );
 }

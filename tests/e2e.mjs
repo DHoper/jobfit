@@ -85,11 +85,60 @@ await new Promise((r) => setTimeout(r, 1500));
 const hl = await page.evaluate(() => [...CSS.highlights.keys()].map((k) => [k, CSS.highlights.get(k).size]));
 console.log('highlights', JSON.stringify(hl));
 const fail = [];
+
+// ---------- 其他網站（全部是模擬頁面）----------
+const OTHER = {
+  'https://www.linkedin.com/jobs/view/4012345678/': `<h1 class="top-card-layout__title">Senior Backend Engineer</h1>
+    <a class="topcard__org-name-link">Nimbus Cloud</a><div id="job-details"><p>Build payment APIs in Go.</p><p>本職務為責任制，需配合加班。</p>${'<p>More details about the role.</p>'.repeat(5)}</div>`,
+  'https://www.yourator.co/companies/kuma/jobs/45': `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'JobPosting', title: 'Platform Engineer', hiringOrganization: { name: 'Kuma Data' }, baseSalary: { value: { minValue: 60000, maxValue: 90000, unitText: 'MONTH' } }, description: '<p>維運 Kubernetes 平台與 CI/CD。</p><p>錄取前需完成帶回家作業。</p><p>' + '團隊介紹。'.repeat(20) + '</p>' })}</script><h1>Platform Engineer</h1>`,
+  'https://www.1111.com.tw/': `<h1>1111 人力銀行</h1><main>${'<p>熱門職缺推薦與求職新聞。</p>'.repeat(40)}</main>`,
+};
+page.on('request', () => {});
+const other = await browser.newPage();
+await other.setRequestInterception(true);
+other.on('request', (req) => {
+  const body = OTHER[req.url()];
+  if (body) return req.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: `<!doctype html><html><head><meta charset="utf-8"></head><body>${body}</body></html>` });
+  req.continue();
+});
+async function panelFor(url) {
+  await other.goto(url, { waitUntil: 'domcontentloaded' });
+  const p = await browser.newPage();
+  await p.goto(`chrome-extension://${extId}/options.html`, { waitUntil: 'domcontentloaded' });
+  const id = await p.evaluate(async (u) => (await chrome.tabs.query({})).find((t) => t.url === u)?.id, url);
+  await p.close();
+  const sp = await browser.newPage();
+  await sp.setViewport({ width: 400, height: 900 });
+  await sp.evaluateOnNewDocument((id, u) => {
+    const q = chrome.tabs.query.bind(chrome.tabs);
+    chrome.tabs.query = async (o) => (o && o.active ? [{ id, active: true, url: u }] : q(o));
+  }, id, url);
+  await sp.goto(`chrome-extension://${extId}/sidepanel.html`, { waitUntil: 'domcontentloaded' });
+  await new Promise((r) => setTimeout(r, 1500));
+  const r = await sp.evaluate(() => ({
+    title: document.querySelector('h1')?.textContent || null,
+    empty: document.querySelector('h2')?.textContent || null,
+    flags: [...document.querySelectorAll('section button span.font-semibold')].map((e) => e.textContent),
+    meta: document.querySelector('dl')?.textContent || '',
+  }));
+  await sp.close();
+  return r;
+}
+const li = await panelFor('https://www.linkedin.com/jobs/view/4012345678/');
+console.log('linkedin', JSON.stringify(li));
+const yo = await panelFor('https://www.yourator.co/companies/kuma/jobs/45');
+console.log('yourator', JSON.stringify(yo));
+const home = await panelFor('https://www.1111.com.tw/');
+console.log('1111 home', JSON.stringify(home));
+
 if (!launcher?.shown) fail.push('104 頁面沒有出現評估標籤');
 if (apiHits < 1) fail.push('沒有呼叫 104 職缺資料 API');
 if (title !== JOB.data.header.jobName) fail.push(`側邊欄職稱不對：${title}`);
 for (const f of ['責任制', '需配合加班', '試用期薪資打折', '抗壓性高']) if (!flags.includes(f)) fail.push(`沒抓到地雷：${f}`);
 if (!hl.some(([k, n]) => k === 'jobfit-high' && n > 0)) fail.push('頁面上沒有標出高風險字詞');
+if (li.title !== 'Senior Backend Engineer' || !li.flags.includes('責任制')) fail.push('LinkedIn 職缺讀取或地雷偵測失敗');
+if (yo.title !== 'Platform Engineer' || !yo.meta.includes('Kuma Data') || !yo.meta.includes("月薪 60,000~90,000 元") || !yo.flags.includes('面試前需完成作業')) fail.push('Yourator（JSON-LD）讀取失敗');
+if (home.title || home.empty !== '這頁不是職缺頁') fail.push('1111 首頁被誤當成職缺');
 await page.bringToFront(); await page.screenshot({ path: OUT + 'e2e-104-marked.png' });
 // launcher label after a fake evaluation record
 await panel.evaluate(() => chrome.storage.local.get('records').then(({ records = {} }) => chrome.storage.local.set({ records: { ...records, '104:8x2kq': { id: '104:8x2kq', url: '', site: '104', title: 't', ruleHits: [], status: 'saved', createdAt: '', updatedAt: '', evaluation: { verdict: 'SKIP', score: 30, summary: '', requirements: [], red_flags: [], pros: [], cons: [], questions_to_ask: [], resume_tips: [], dealbreakers_hit: [], evaluatedAt: new Date().toISOString() } } } })));

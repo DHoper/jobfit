@@ -2,6 +2,7 @@
 // 放在 Shadow DOM 裡，不受網站樣式影響，也不會影響網站。
 import { extractJobInPage } from '@/lib/extract';
 import { checkRules } from '@/lib/rules';
+import { BRAND, MARK_PATH } from '@/lib/brand';
 
 export default defineContentScript({
   matches: ['https://www.104.com.tw/*'],
@@ -35,8 +36,8 @@ export default defineContentScript({
         .label.apply { color: #6EE7A1; } .label.maybe { color: #FFC93C; } .label.skip { color: #FF8A8A; }
         @media (prefers-reduced-motion: reduce) { button { transition: none; } }
       </style>
-      <button type="button" aria-label="投準：評估這個職缺">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#FFC93C"/><circle cx="16" cy="16" r="8.5" fill="none" stroke="#0F1733" stroke-width="2.4"/><path d="M16 4.5v5M16 22.5v5M4.5 16h5M22.5 16h5" stroke="#0F1733" stroke-width="2.4" stroke-linecap="round"/><path d="m12.4 16.2 2.5 2.5 4.8-5" fill="none" stroke="#0F1733" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <button type="button" aria-label="${BRAND.name}：評估這個職缺">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#FFC93C"/><path d="${MARK_PATH}" fill="#0F1733" stroke="#0F1733" stroke-width="1.2" stroke-linejoin="round"/></svg>
         <span class="label">評估職缺</span>
         <span class="count" hidden></span>
       </button>`;
@@ -77,7 +78,7 @@ export default defineContentScript({
       count.textContent = String(hits.length);
       count.classList.toggle('high', high > 0);
       count.hidden = false;
-      btn.setAttribute('aria-label', `投準：偵測到 ${hits.length} 個地雷${high ? `，其中 ${high} 個高風險` : ''}，點一下看評估`);
+      btn.setAttribute('aria-label', `${BRAND.name}：偵測到 ${hits.length} 個地雷${high ? `，其中 ${high} 個高風險` : ''}，點一下看評估`);
     };
     document.documentElement.appendChild(host);
     refresh();

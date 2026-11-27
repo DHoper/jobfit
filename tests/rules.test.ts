@@ -123,3 +123,14 @@ describe('常見誤判', () => {
     expect(h?.why).toContain('至少 4 萬');
   });
 });
+
+import { evaluationToText } from '../src/lib/prompt';
+describe('evaluationToText', () => {
+  it('產生可貼上的摘要', () => {
+    const e = parseEvaluation('{"verdict":"SKIP","score":40,"summary":"方向不符","requirements":[{"requirement":"Java","status":"gap","evidence":"沒有 Java 經驗"}]}');
+    const t = evaluationToText(job('x', { title: '後端', company: 'A 公司', url: 'https://x/1' }), e, []);
+    expect(t).toContain('結論：別投（符合度 40）');
+    expect(t).toContain('✗ Java：沒有 Java 經驗');
+    expect(t.endsWith('https://x/1')).toBe(true);
+  });
+});
